@@ -1,0 +1,132 @@
+# Base stack: everything needed to run the gateway with no credentials and no paid services.
+#
+# Usage (from the repository root — .env sets COMPOSE_FILE so paths stay short):
+#   docker compose up -d              # infrastructure only, fast inner loop
+#   docker compose --profile app up -d --build   # infrastructure + the gateway container
+#
+# This file is CPU-only on purpose so it also runs on a machine without an NVIDIA GPU and in CI.
+# compose.gpu.yaml layers GPU access onto ollama-primary and is enabled by default via .env.
+
+name: llm-gateway
+
+services:
+  postgres:
+    # pgvector image = stock Postgres + the vector extension, so the semantic cache (M6) and the
+    # relational schema (M3) share one datastore and one transaction boundary.
+    image: pgvector/pgvector:pg17
+    container_name: llmgw-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-llmgw}
+      POSTGRES_USER: ${POSTGRES_USER:-llmgw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llmgw}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # why pg_isready with the app user: the default probe reports ready while the init scripts
+      # are still running, which makes dependent services start against a half-built database.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-llmgw} -d ${POSTGRES_DB:-llmgw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: llmgw-redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      # Rate-limit counters must never be evicted under memory pressure while cache entries may be.
+      # allkeys-lru would silently drop a token bucket and turn a rate limiter into a no-op, so we
+      # only evict keys that carry an explicit TTL — which is exactly the cache entries.
+      - --maxmemory-policy
+      - volatile-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  ollama-primary:
+    image: ollama/ollama:latest
+    container_name: llmgw-ollama-primary
+    ports:
+      - "${OLLAMA_PRIMARY_PORT:-11434}:11434"
+    volumes:
+      - ollama-primary-models:/root/.ollama
+    environment:
+      # One model resident at a time; the laptop GPU has 6 GB and an eviction storm mid-benchmark
+      # would corrupt the numbers in BENCHMARKS.md.
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "10m"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  ollama-secondary:
+    # Failover target. CPU-only by design: two runtimes competing for 6 GB of VRAM would make
+    # failover timings unrepeatable, and asymmetric primary/secondary latency is realistic anyway.
+    image: ollama/ollama:latest
+    container_name: llmgw-ollama-secondary
+    ports:
+      - "${OLLAMA_SECONDARY_PORT:-11435}:11434"
+    volumes:
+      - ollama-secondary-models:/root/.ollama
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "10m"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  gateway:
+    # Behind a profile so the everyday loop (`docker compose up -d`) does not rebuild a JAR.
+    profiles: ["app"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: llmgw-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      OLLAMA_PRIMARY_URL: http://ollama-primary:11434
+      OLLAMA_SECONDARY_URL: http://ollama-secondary:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama-primary:
+        condition: service_healthy
+      ollama-secondary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  redis-data:
+  ollama-primary-models:
+  ollama-secondary-models:

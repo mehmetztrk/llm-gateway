@@ -1,0 +1,22 @@
+# Additive overlay: gives ollama-primary access to the NVIDIA GPU.
+#
+# Enabled by default through COMPOSE_FILE in the repository-root .env. Requires
+# nvidia-container-toolkit on the host (scripts/bootstrap-dev.sh installs it).
+#
+# On a machine without an NVIDIA GPU, edit .env to:
+#   COMPOSE_FILE=docker/compose.yaml
+# and everything still runs, just slower.
+#
+# why an additive overlay instead of putting the GPU block in the base file and subtracting it
+# here: Compose merges list-valued keys by appending, so there is no reliable way to *remove* a
+# device reservation in an override. Adding is deterministic; removing is not.
+
+services:
+  ollama-primary:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
