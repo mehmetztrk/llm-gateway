@@ -1,0 +1,21 @@
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.gradle/
+bin/
+
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+*.log
+.DS_Store
+
+# Local overrides that may contain machine-specific values or secrets.
+.env.local
+src/main/resources/application-secret.yml
+
+# k6 raw output is committed deliberately (see BENCHMARKS.md); scratch runs are not.
+k6/out/scratch/

@@ -1,0 +1,21 @@
+## Gradle version catalog.
+## Single source of truth for dependency versions; referenced as `libs.x.y` in build.gradle.kts.
+## why this, not hardcoded strings: versions stay out of the build logic, Dependabot can bump one
+## file, and every module (if we ever split) sees identical versions.
+
+[versions]
+# Spring Boot 3.5.x is the last 3.x line. Initializr now defaults to 4.x, but the
+# Resilience4j / OpenTelemetry starter ecosystem is still most mature on 3.5. See ADR-000.
+springBoot = "3.5.16"
+springDependencyManagement = "1.1.7"
+spotless = "8.10.0"
+palantirJavaFormat = "2.97.0"
+archunit = "1.5.0"
+
+[libraries]
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
