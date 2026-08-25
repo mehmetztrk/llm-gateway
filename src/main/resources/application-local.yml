@@ -1,0 +1,13 @@
+# Local development profile: human-readable logs and full health detail.
+# Activate with: ./gradlew bootRun --args='--spring.profiles.active=local'
+logging:
+  structured:
+    format:
+      console: # unset -> plain human-readable console output
+  level:
+    io.github.mehmetztrk.llmgateway: DEBUG
+
+management:
+  endpoint:
+    health:
+      show-details: always

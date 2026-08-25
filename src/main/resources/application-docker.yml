@@ -1,0 +1,8 @@
+# Active when the gateway itself runs inside compose. Service names replace localhost.
+# Placeholders are supplied by docker/compose.yaml; the defaults keep the file runnable standalone.
+gateway:
+  providers:
+    ollama-primary:
+      base-url: ${OLLAMA_PRIMARY_URL:http://ollama-primary:11434}
+    ollama-secondary:
+      base-url: ${OLLAMA_SECONDARY_URL:http://ollama-secondary:11434}
