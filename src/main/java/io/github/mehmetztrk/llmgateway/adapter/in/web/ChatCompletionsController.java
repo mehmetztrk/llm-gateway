@@ -5,10 +5,12 @@ import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.ChatCompletionRequestD
 import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.ChatCompletionResponseDto;
 import io.github.mehmetztrk.llmgateway.application.port.in.ChatCompletionUseCase;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,8 +24,9 @@ import reactor.core.publisher.Mono;
  * <p>Deliberately thin: parse, translate, delegate, translate back. Every decision worth testing
  * lives behind {@link ChatCompletionUseCase}.
  *
- * <p><b>Not yet authenticated.</b> API keys and tenants arrive in M3; until then this endpoint is
- * open. That is a known, temporary state, not an oversight.
+ * <p>The {@link AuthenticatedCaller} is resolved by {@code ApiKeyAuthenticationFilter} and injected
+ * here by Spring Security. It is a required parameter rather than something looked up later, so a
+ * request can never reach a provider without a tenant attached to it.
  */
 @RestController
 @RequestMapping("/v1")
@@ -46,15 +49,16 @@ class ChatCompletionsController {
             path = "/chat/completions",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
-    ResponseEntity<?> createChatCompletion(@Valid @RequestBody ChatCompletionRequestDto request) {
+    ResponseEntity<?> createChatCompletion(
+            @AuthenticationPrincipal AuthenticatedCaller caller, @Valid @RequestBody ChatCompletionRequestDto request) {
         ChatRequest domainRequest = OpenAiMapper.toDomain(request);
 
         if (Boolean.TRUE.equals(request.stream())) {
-            return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(streamOf(domainRequest));
+            return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(streamOf(caller, domainRequest));
         }
 
         Mono<ChatCompletionResponseDto> body =
-                chatCompletion.complete(domainRequest).map(OpenAiMapper::toWire);
+                chatCompletion.complete(caller, domainRequest).map(OpenAiMapper::toWire);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
@@ -76,8 +80,8 @@ class ChatCompletionsController {
      * re-thrown so {@link GatewayErrorHandler} maps it to a status code; everything after it is
      * caught and turned into an in-band error frame.
      */
-    private Flux<ServerSentEvent<String>> streamOf(ChatRequest request) {
-        return chatCompletion.stream(request).switchOnFirst((firstSignal, chunks) -> {
+    private Flux<ServerSentEvent<String>> streamOf(AuthenticatedCaller caller, ChatRequest request) {
+        return chatCompletion.stream(caller, request).switchOnFirst((firstSignal, chunks) -> {
             if (firstSignal.isOnError()) {
                 return Flux.error(firstSignal.getThrowable());
             }

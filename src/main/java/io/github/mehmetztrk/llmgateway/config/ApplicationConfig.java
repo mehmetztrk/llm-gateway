@@ -1,6 +1,11 @@
 package io.github.mehmetztrk.llmgateway.config;
 
+import io.github.mehmetztrk.llmgateway.application.port.in.AdminUseCase;
 import io.github.mehmetztrk.llmgateway.application.port.in.ChatCompletionUseCase;
+import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyFactory;
+import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyHasher;
+import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
+import io.github.mehmetztrk.llmgateway.application.service.AdminService;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
 import java.time.Clock;
@@ -31,5 +36,16 @@ public class ApplicationConfig {
     @Bean
     public ChatCompletionUseCase chatCompletionUseCase(ProviderRegistry registry) {
         return new ChatCompletionService(registry);
+    }
+
+    @Bean
+    public AdminUseCase adminUseCase(TenantRepository tenants, ApiKeyFactory keyFactory, ApiKeyHasher hasher) {
+        return new AdminService(tenants, keyFactory, hasher);
+    }
+
+    @Bean
+    public SecurityBootstrap securityBootstrap(
+            TenantRepository tenants, ApiKeyHasher hasher, ApiKeyFactory keyFactory, SecurityProperties properties) {
+        return new SecurityBootstrap(tenants, hasher, keyFactory, properties);
     }
 }

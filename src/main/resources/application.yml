@@ -42,7 +42,33 @@ management:
     java:
       enabled: true
 
+spring.datasource:
+  url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:llmgw}
+  username: ${POSTGRES_USER:llmgw}
+  password: ${POSTGRES_PASSWORD:llmgw}
+  hikari:
+    # Small on purpose. Every connection is held only for the microseconds a key lookup takes,
+    # and an oversized pool just moves contention from the application into Postgres.
+    maximum-pool-size: 10
+    pool-name: llmgw-pool
+
+spring.flyway:
+  enabled: true
+  locations: classpath:db/migration
+
 gateway:
+  security:
+    # Mixed into every key digest and never stored in the database, so a database dump alone
+    # cannot verify a guessed key. MUST be overridden outside local development.
+    key-pepper: ${GATEWAY_KEY_PEPPER:change-me-in-production}
+    # This value is the revocation SLA for changes made by another replica.
+    cache-ttl: 60s
+    cache-max-size: 10000
+    # Unset by default: a deployment with no configured key fails closed rather than shipping a
+    # well-known default credential.
+    bootstrap-admin-key: ${GATEWAY_BOOTSTRAP_ADMIN_KEY:}
+    bootstrap-tenant-key: ${GATEWAY_BOOTSTRAP_TENANT_KEY:}
+
   observability:
     # Never enable outside local debugging. See GatewayProperties.Observability#logPrompts.
     log-prompts: false

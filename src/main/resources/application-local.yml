@@ -11,3 +11,11 @@ management:
   endpoint:
     health:
       show-details: always
+
+# Fixed, well-known credentials so `docker compose up` plus bootRun gives a working demo console.
+# They exist only in this profile. Anything running with the local profile is not production.
+gateway:
+  security:
+    key-pepper: local-development-pepper
+    bootstrap-admin-key: llmgw_local_admin_key_do_not_use_in_production
+    bootstrap-tenant-key: llmgw_local_demo_key_do_not_use_in_production

@@ -6,6 +6,7 @@ import io.github.mehmetztrk.llmgateway.domain.error.GatewayException;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
+import io.github.mehmetztrk.llmgateway.domain.error.TenantNotFound;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -43,6 +44,8 @@ class GatewayErrorHandler {
                         "api_error",
                         "provider_error",
                         e);
+            case TenantNotFound e ->
+                respond(HttpStatus.NOT_FOUND, e.getMessage(), "invalid_request_error", "tenant_not_found", e);
             // No default branch: GatewayException is abstract and sealed, so this switch is
             // exhaustive and a new subtype will not compile until it is handled here.
         };
