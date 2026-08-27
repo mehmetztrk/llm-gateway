@@ -6,11 +6,11 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M3 of 10 — multi-tenant and authenticated.** `/v1/chat/completions` works streamed and
+> **Status: M4 of 10 — multi-tenant, authenticated and rate limited.** `/v1/chat/completions` works streamed and
 > non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
 > Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
-> resolves to a tenant and its model allow-list. Rate limiting, quotas, caching and failover are
-> not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
+> resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Caching
+> and failover are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
 > capability is claimed here before it exists and is tested.
 
 ## Demo console
@@ -130,7 +130,32 @@ curl -s -X POST localhost:8080/admin/tenants -H 'Authorization: Bearer $ADMIN_KE
 | `PUT` | `/admin/tenants/{id}/models` | Replace the allow-list (takes effect immediately) |
 | `POST` | `/admin/tenants/{id}/keys` | Issue a key — the plaintext is returned **once** |
 | `GET` | `/admin/tenants/{id}/keys` | List key metadata, never the keys themselves |
+| `PUT` | `/admin/tenants/{id}/limits` | Set per-minute limits and the monthly budget |
 | `DELETE` | `/admin/keys/{id}` | Revoke a key (idempotent, soft delete) |
+
+## Rate limits and quotas
+
+Four token buckets guard every request: requests-per-minute and tokens-per-minute, each enforced
+per tenant *and* per key. A key without its own limit inherits its tenant's — the safe reading of
+"not configured". Every response carries the headers an OpenAI SDK already knows:
+
+```
+x-ratelimit-limit-requests / -remaining-requests / -reset-requests
+x-ratelimit-limit-tokens   / -remaining-tokens   / -reset-tokens
+```
+
+Refusals are `429` with `Retry-After`. A monthly token budget adds a soft threshold — a warning
+header while there is still budget — and then a hard `429` with `insufficient_quota`, deliberately
+*without* `Retry-After`, since waiting will not help until the next period.
+
+Token counts are charged in two phases: admission spends an estimate of the prompt, and the real
+total is settled once the provider reports it. A caller can overshoot by at most one response, which
+then delays its next request.
+
+**When Redis is unreachable the gateway refuses requests** (`503`, `rate_limiter_unavailable`)
+rather than letting them through. A limiter that fails open turns a Redis outage into unlimited
+access to every provider behind it. The cache in M6 makes the opposite choice for the opposite
+reason — both are argued in [ADR-0004](docs/adr/0004-fail-closed-limits-fail-open-cache.md).
 
 No NVIDIA GPU? Set `COMPOSE_FILE=docker/compose.yaml` in `.env` — everything still runs, on CPU.
 
@@ -160,7 +185,7 @@ should never be enabled against real traffic.
 | M1 | Provider port, Ollama + Mock, non-streaming passthrough | ✅ done |
 | M2 | SSE streaming, backpressure, mid-stream failure | ✅ done |
 | M3 | Tenants, API keys, Flyway schema | ✅ done |
-| M4 | Rate limiting, quotas, 429 semantics | ⬜ |
+| M4 | Rate limiting, quotas, 429 semantics | ✅ done |
 | M5 | Routing, circuit breaker, failover + chaos test | ⬜ |
 | M6 | Exact + semantic cache, tenant isolation | ⬜ |
 | M7 | Usage ledger, cost accounting, usage API | ⬜ |
