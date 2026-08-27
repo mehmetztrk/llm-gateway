@@ -6,13 +6,12 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M2 of 10 — it proxies and it streams.** `/v1/chat/completions` works end to end,
-> streamed and non-streamed, against a local Ollama and a deterministic mock provider. The official
-> `openai` Python SDK talks to it with only `base_url` changed. Authentication, rate limiting,
-> quotas, caching and failover are not implemented yet — see [Roadmap](#roadmap). This notice is
-> updated as milestones land, and no capability is claimed here before it exists and is tested.
->
-> **The endpoint is currently unauthenticated.** API keys and tenants arrive in M3.
+> **Status: M3 of 10 — multi-tenant and authenticated.** `/v1/chat/completions` works streamed and
+> non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
+> Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
+> resolves to a tenant and its model allow-list. Rate limiting, quotas, caching and failover are
+> not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
+> capability is claimed here before it exists and is tested.
 
 ## Demo console
 
@@ -85,17 +84,53 @@ Then run the gateway:
 curl -s http://localhost:8080/actuator/health
 ```
 
-Send it a completion — `mock-fast` needs no model and no GPU:
+Send it a completion — `mock-fast` needs no model and no GPU. The `local` profile seeds a demo key:
 
 ```bash
-curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"mock-fast","messages":[{"role":"user","content":"hello"}]}'
+curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer llmgw_local_demo_key_do_not_use_in_production' -d '{"model":"mock-fast","messages":[{"role":"user","content":"hello"}]}'
 ```
 
 Or prove SDK compatibility for yourself:
 
 ```bash
-pip install openai && python scripts/verify-openai-sdk.py --model qwen2.5:1.5b-instruct
+pip install openai && python scripts/verify-openai-sdk.py --model qwen2.5:1.5b-instruct --api-key llmgw_local_demo_key_do_not_use_in_production
 ```
+
+## Authentication and tenancy
+
+Every `/v1/**` request needs an API key, sent the way an OpenAI SDK sends it:
+
+```
+Authorization: Bearer llmgw_...
+```
+
+The key resolves to a **tenant** and that tenant's **model allow-list**. A model outside the list is
+a 403 before any provider is contacted. Keys carry a role: `TENANT` may call `/v1/**`, `ADMIN` may
+additionally manage tenants and keys through `/admin/**`.
+
+Keys are stored as `HMAC-SHA256(pepper, key)` — never reversibly, and never with a password hash.
+An API key is 256 bits of `SecureRandom`, so there is nothing to brute-force, while Argon2id on
+every request would exceed the entire p99 budget and hand anyone a CPU-amplification attack. The
+reasoning is written up in [ADR-0009](docs/adr/0009-hmac-not-argon2-for-api-keys.md).
+
+A fresh database has no keys, so `gateway.security.bootstrap-admin-key` seeds the first admin
+credential. It is **unset by default**: a deployment that forgets to configure one fails closed
+rather than shipping a well-known default.
+
+### Admin API
+
+```bash
+curl -s -X POST localhost:8080/admin/tenants -H 'Authorization: Bearer $ADMIN_KEY' -H 'Content-Type: application/json' -d '{"name":"acme","allowedModels":["mock-fast","qwen2.5:1.5b-instruct"]}'
+```
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/admin/tenants` | Create a tenant with its allow-list |
+| `GET` | `/admin/tenants` | List tenants |
+| `PUT` | `/admin/tenants/{id}/models` | Replace the allow-list (takes effect immediately) |
+| `POST` | `/admin/tenants/{id}/keys` | Issue a key — the plaintext is returned **once** |
+| `GET` | `/admin/tenants/{id}/keys` | List key metadata, never the keys themselves |
+| `DELETE` | `/admin/keys/{id}` | Revoke a key (idempotent, soft delete) |
 
 No NVIDIA GPU? Set `COMPOSE_FILE=docker/compose.yaml` in `.env` — everything still runs, on CPU.
 
@@ -124,7 +159,7 @@ should never be enabled against real traffic.
 | M0 | Repo skeleton, compose stack, health endpoint, CI | ✅ done |
 | M1 | Provider port, Ollama + Mock, non-streaming passthrough | ✅ done |
 | M2 | SSE streaming, backpressure, mid-stream failure | ✅ done |
-| M3 | Tenants, API keys, Flyway schema | ⬜ |
+| M3 | Tenants, API keys, Flyway schema | ✅ done |
 | M4 | Rate limiting, quotas, 429 semantics | ⬜ |
 | M5 | Routing, circuit breaker, failover + chaos test | ⬜ |
 | M6 | Exact + semantic cache, tenant isolation | ⬜ |

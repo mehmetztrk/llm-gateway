@@ -26,11 +26,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8080/v1")
     parser.add_argument("--model", default="mock-fast")
+    parser.add_argument(
+        "--api-key",
+        default="llmgw_local_demo_key_do_not_use_in_production",
+        help="defaults to the key the 'local' profile seeds",
+    )
     args = parser.parse_args()
 
-    # The only two lines that differ from talking to OpenAI itself. The key is required by the
-    # SDK's constructor but not yet checked by the gateway — API keys arrive in M3.
-    client = OpenAI(base_url=args.base_url, api_key="not-required-until-m3")
+    # The only two lines that differ from talking to OpenAI itself: a different base_url, and a
+    # key issued by this gateway instead of by OpenAI.
+    client = OpenAI(base_url=args.base_url, api_key=args.api_key)
 
     print(f"openai SDK {openai.__version__} -> {args.base_url} (model: {args.model})\n")
     results = []
@@ -79,18 +84,31 @@ def main() -> int:
     except openai.BadRequestError as error:
         results.append(check("empty messages raises BadRequestError", True, str(error.status_code)))
 
-    print("\nstreaming (expected to be refused until M2):")
     try:
-        stream = client.chat.completions.create(
+        client.chat.completions.create(
             model=args.model,
             messages=[{"role": "user", "content": "hi"}],
-            stream=True,
+            extra_headers={"Authorization": "Bearer llmgw_not_a_real_key"},
         )
-        for _ in stream:
-            pass
-        results.append(check("stream=true is refused explicitly", False, "stream succeeded unexpectedly"))
-    except openai.BadRequestError as error:
-        results.append(check("stream=true is refused explicitly", True, f"HTTP {error.status_code}"))
+        results.append(check("a bad key raises AuthenticationError", False, "no exception raised"))
+    except openai.AuthenticationError as error:
+        results.append(check("a bad key raises AuthenticationError", True, str(error.status_code)))
+
+    print("\nstreaming:")
+    stream = client.chat.completions.create(
+        model=args.model,
+        messages=[{"role": "user", "content": "Count to five."}],
+        stream=True,
+    )
+    chunks = 0
+    streamed = ""
+    for event in stream:
+        chunks += 1
+        delta = event.choices[0].delta.content if event.choices else None
+        if delta:
+            streamed += delta
+    results.append(check("the SDK iterated the stream", chunks > 0, f"{chunks} chunks"))
+    results.append(check("streamed content is non-empty", bool(streamed.strip())))
 
     passed = sum(1 for r in results if r)
     print(f"\n{passed}/{len(results)} checks passed")
