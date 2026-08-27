@@ -1,16 +1,27 @@
 package io.github.mehmetztrk.llmgateway.domain.tenant;
 
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import java.time.Instant;
 import java.util.Objects;
 
 /** An organisation using the gateway. */
-public record Tenant(TenantId id, String name, boolean active, ModelAllowList allowedModels, Instant createdAt) {
+public record Tenant(
+        TenantId id,
+        String name,
+        boolean active,
+        ModelAllowList allowedModels,
+        RateLimitPolicy rateLimits,
+        QuotaPolicy quota,
+        Instant createdAt) {
 
     public Tenant {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(allowedModels, "allowedModels");
+        Objects.requireNonNull(rateLimits, "rateLimits");
+        Objects.requireNonNull(quota, "quota");
         Objects.requireNonNull(createdAt, "createdAt");
         if (name.isBlank()) {
             throw new IllegalArgumentException("tenant name must not be blank");
