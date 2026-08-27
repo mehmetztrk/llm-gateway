@@ -46,3 +46,30 @@ gateway:
   observability:
     # Never enable outside local debugging. See GatewayProperties.Observability#logPrompts.
     log-prompts: false
+
+  providers:
+    # Map keys become the provider id used in logs, metrics and ledger rows.
+    ollama:
+      ollama-primary:
+        base-url: ${OLLAMA_PRIMARY_URL:http://localhost:11434}
+        models:
+          - qwen2.5:1.5b-instruct
+          - nomic-embed-text
+        timeout: 60s
+      ollama-secondary:
+        base-url: ${OLLAMA_SECONDARY_URL:http://localhost:11435}
+        models:
+          - llama3.2:1b
+        timeout: 120s # CPU-only, so it is legitimately slower than the primary
+
+    # The mock never talks to a model. Every benchmark number is measured against it, because a
+    # real model's variance dwarfs the gateway overhead under test.
+    mock:
+      enabled: true
+      models:
+        - mock-fast
+        - mock-echo
+      latency: 0ms
+      completion-tokens: 32
+      error-rate: 0.0
+      seed: 42
