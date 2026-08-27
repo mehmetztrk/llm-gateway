@@ -42,7 +42,15 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 step "Checking sudo access (needed for Docker and k6)"
-sudo -v || die "sudo is required."
+# why not a bare `sudo -v`: sudo's default verifypw=all makes -v prompt for a password if *any*
+# sudoers entry matching the user requires one — which is true for every member of the `sudo`
+# group, even when a NOPASSWD rule is what actually applies. That turns -v into a hard failure
+# under any non-interactive run. Probe with -n first and only fall back to prompting.
+if sudo -n true 2>/dev/null; then
+    ok "passwordless sudo available"
+else
+    sudo -v || die "sudo is required."
+fi
 
 # Keep the sudo timestamp warm for the rest of the run. Installing Docker takes longer than the
 # default 15-minute timestamp on a slow connection, and a second password prompt buried in apt
@@ -67,8 +75,12 @@ else
     ok "SDKMAN already present"
 fi
 
+# sdkman-init.sh reads variables it has not always set, so it aborts under `set -u`. Relaxing
+# nounset only around the source keeps the rest of this script strict.
+set +u
 # shellcheck disable=SC1091
 source "$SDKMAN_DIR/bin/sdkman-init.sh"
+set -u
 
 if [[ -d "$SDKMAN_DIR/candidates/java/$JAVA_VERSION" ]]; then
     ok "JDK $JAVA_VERSION already installed"
