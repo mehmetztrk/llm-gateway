@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Gateway — Console</title>
+<style>
+  /* Self-contained on purpose: no CDN, no fonts, no build step. The gateway must run on a
+     laptop with no network, and a demo page that needs one would break that promise. */
+  :root {
+    --bg: #ffffff; --panel: #f7f8fa; --border: #e3e6ea; --text: #14171a;
+    --muted: #667085; --accent: #2f6feb; --accent-soft: #eaf0fe;
+    --ok: #17803d; --err: #c0392b; --warn: #b7791f; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #161b22; --border: #262d36; --text: #e6edf3;
+      --muted: #8b949e; --accent: #4c8dff; --accent-soft: #16233b;
+      --ok: #3fb950; --err: #f85149; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    border-bottom: 1px solid var(--border); padding: 14px 20px;
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .badge {
+    margin-left: auto; font-size: 12px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+  }
+  .badge.up { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+  .badge.down { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: calc(100vh - 56px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .controls { border-right: 1px solid var(--border); padding: 18px 20px; }
+  @media (max-width: 900px) { .controls { border-right: none; border-bottom: 1px solid var(--border); } }
+  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+          color: var(--muted); margin: 16px 0 6px; font-weight: 600; }
+  label:first-of-type { margin-top: 0; }
+  select, textarea, input {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); color: var(--text); font-family: inherit; font-size: 14px;
+  }
+  textarea { resize: vertical; min-height: 96px; }
+  select:focus, textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 14px; }
+  .check input { width: auto; }
+  button {
+    margin-top: 18px; width: 100%; padding: 11px; border: 0; border-radius: 7px;
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); margin-top: 8px; }
+  .output { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 11px; font-size: 12px; min-width: 84px;
+  }
+  .stat b { display: block; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stat span { color: var(--muted); }
+  .answer {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+    padding: 16px; white-space: pre-wrap; word-break: break-word; min-height: 140px;
+    font-size: 15px; line-height: 1.6;
+  }
+  .answer.empty { color: var(--muted); }
+  .answer .cursor {
+    display: inline-block; width: 7px; height: 1.05em; background: var(--accent);
+    vertical-align: text-bottom; animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink { to { visibility: hidden; } }
+  .error {
+    border: 1px solid color-mix(in srgb, var(--err) 45%, var(--border));
+    background: color-mix(in srgb, var(--err) 8%, var(--bg));
+    color: var(--err); border-radius: 8px; padding: 11px 14px; font-size: 13.5px;
+  }
+  details { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+  summary { cursor: pointer; padding: 10px 14px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  pre {
+    margin: 0; padding: 0 14px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+    overflow-x: auto; max-height: 340px; overflow-y: auto; color: var(--muted);
+  }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 10px; line-height: 1.5; }
+  code { font-family: var(--mono); font-size: 0.92em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LLM Gateway</h1>
+  <span class="sub">OpenAI-compatible <code>/v1/chat/completions</code></span>
+  <span class="badge" id="health">checking…</span>
+</header>
+
+<main>
+  <section class="controls">
+    <label for="model">Model</label>
+    <select id="model">
+      <optgroup label="Mock provider — deterministic, no GPU">
+        <option value="mock-fast">mock-fast</option>
+        <option value="mock-echo">mock-echo</option>
+      </optgroup>
+      <optgroup label="Ollama primary — GPU">
+        <option value="qwen2.5:1.5b-instruct">qwen2.5:1.5b-instruct</option>
+      </optgroup>
+      <optgroup label="Ollama secondary — CPU">
+        <option value="llama3.2:1b">llama3.2:1b</option>
+      </optgroup>
+      <optgroup label="Not served by anyone">
+        <option value="gpt-5-imaginary">gpt-5-imaginary (expect 404)</option>
+      </optgroup>
+    </select>
+
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt">Explain what an API gateway does, in two sentences.</textarea>
+
+    <div class="row">
+      <div>
+        <label for="maxTokens">max_tokens</label>
+        <input id="maxTokens" type="number" value="120" min="1" max="4096">
+      </div>
+      <div>
+        <label for="temperature">temperature</label>
+        <input id="temperature" type="number" value="0.7" min="0" max="2" step="0.1">
+      </div>
+    </div>
+
+    <div class="check">
+      <input type="checkbox" id="stream" checked>
+      <label for="stream" style="margin:0; text-transform:none; letter-spacing:0; font-size:14px; color:var(--text);">
+        stream (server-sent events)
+      </label>
+    </div>
+
+    <button id="send">Send</button>
+    <button id="stop" class="secondary" disabled>Stop</button>
+
+    <p class="hint">
+      Pick <code>gpt-5-imaginary</code> to see the OpenAI-shaped 404, or a real model to watch
+      tokens arrive one frame at a time. Raw SSE frames are shown below the answer.
+    </p>
+  </section>
+
+  <section class="output">
+    <div class="stats">
+      <div class="stat"><span>TTFB</span><b id="s-ttfb">—</b></div>
+      <div class="stat"><span>Total</span><b id="s-total">—</b></div>
+      <div class="stat"><span>Frames</span><b id="s-frames">—</b></div>
+      <div class="stat"><span>Prompt tok</span><b id="s-ptok">—</b></div>
+      <div class="stat"><span>Output tok</span><b id="s-ctok">—</b></div>
+      <div class="stat"><span>Status</span><b id="s-status">—</b></div>
+    </div>
+
+    <div id="error" class="error" hidden></div>
+
+    <div class="answer empty" id="answer">The response will appear here.</div>
+
+    <details>
+      <summary>Raw wire frames</summary>
+      <pre id="raw">(nothing yet)</pre>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const answerEl = $('answer'), rawEl = $('raw'), errEl = $('error');
+  let controller = null;
+
+  const setStat = (id, value) => { $(id).textContent = value; };
+  const resetStats = () => ['s-ttfb','s-total','s-frames','s-ptok','s-ctok','s-status']
+    .forEach((id) => setStat(id, '—'));
+
+  async function checkHealth() {
+    const badge = $('health');
+    try {
+      const res = await fetch('/actuator/health');
+      const body = await res.json();
+      badge.textContent = 'gateway ' + body.status;
+      badge.className = 'badge ' + (body.status === 'UP' ? 'up' : 'down');
+    } catch {
+      badge.textContent = 'gateway unreachable';
+      badge.className = 'badge down';
+    }
+  }
+
+  function buildBody(stream) {
+    return {
+      model: $('model').value,
+      messages: [{ role: 'user', content: $('prompt').value }],
+      max_tokens: Number($('maxTokens').value),
+      temperature: Number($('temperature').value),
+      stream
+    };
+  }
+
+  function showError(message) {
+    errEl.textContent = message;
+    errEl.hidden = false;
+  }
+
+  function busy(isBusy) {
+    $('send').disabled = isBusy;
+    $('stop').disabled = !isBusy;
+  }
+
+  async function send() {
+    const stream = $('stream').checked;
+    const started = performance.now();
+    let firstByteAt = null, frames = 0, text = '';
+
+    errEl.hidden = true;
+    resetStats();
+    rawEl.textContent = '';
+    answerEl.className = 'answer';
+    answerEl.innerHTML = '<span class="cursor"></span>';
+    busy(true);
+    controller = new AbortController();
+
+    try {
+      const res = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildBody(stream)),
+        signal: controller.signal
+      });
+      setStat('s-status', res.status);
+
+      if (!stream) {
+        const body = await res.json();
+        rawEl.textContent = JSON.stringify(body, null, 2);
+        if (!res.ok) {
+          answerEl.className = 'answer empty';
+          answerEl.textContent = '(request failed)';
+          showError(`${body?.error?.code ?? 'error'}: ${body?.error?.message ?? res.statusText}`);
+        } else {
+          answerEl.textContent = body.choices[0].message.content;
+          setStat('s-ptok', body.usage.prompt_tokens);
+          setStat('s-ctok', body.usage.completion_tokens);
+          setStat('s-frames', 1);
+        }
+        setStat('s-ttfb', Math.round(performance.now() - started) + ' ms');
+        setStat('s-total', Math.round(performance.now() - started) + ' ms');
+        return;
+      }
+
+      if (!res.ok) {
+        // A pre-stream failure (bad model, validation) still comes back as normal JSON,
+        // because the error happens before any SSE frame is written.
+        const body = await res.json().catch(() => null);
+        rawEl.textContent = body ? JSON.stringify(body, null, 2) : '(no body)';
+        answerEl.className = 'answer empty';
+        answerEl.textContent = '(request failed)';
+        showError(`${body?.error?.code ?? 'error'}: ${body?.error?.message ?? res.statusText}`);
+        setStat('s-ttfb', Math.round(performance.now() - started) + ' ms');
+        return;
+      }
+
+      // Minimal SSE reader: split on blank lines, keep the "data:" payloads.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let done = false;
+
+      while (!done) {
+        const { value, done: finished } = await reader.read();
+        if (finished) break;
+        if (firstByteAt === null) {
+          firstByteAt = performance.now();
+          setStat('s-ttfb', Math.round(firstByteAt - started) + ' ms');
+        }
+        buffer += decoder.decode(value, { stream: true });
+
+        let split;
+        while ((split = buffer.indexOf('\n\n')) !== -1) {
+          const rawFrame = buffer.slice(0, split);
+          buffer = buffer.slice(split + 2);
+          const payload = rawFrame.split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+            .join('\n');
+          if (!payload) continue;
+
+          frames++;
+          setStat('s-frames', frames);
+          rawEl.textContent += `data: ${payload}\n`;
+          rawEl.scrollTop = rawEl.scrollHeight;
+
+          if (payload === '[DONE]') { done = true; break; }
+
+          let frame;
+          try { frame = JSON.parse(payload); } catch { continue; }
+
+          if (frame.error) {
+            // Mid-stream failure: headers said 200 long ago, so the only place left to
+            // report the problem is inside the stream itself.
+            showError(`mid-stream ${frame.error.code ?? 'error'}: ${frame.error.message}`);
+            done = true;
+            break;
+          }
+          const choice = frame.choices?.[0];
+          if (choice?.delta?.content) {
+            text += choice.delta.content;
+            answerEl.innerHTML = '';
+            answerEl.append(document.createTextNode(text));
+            answerEl.insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
+          }
+          if (frame.usage) {
+            setStat('s-ptok', frame.usage.prompt_tokens);
+            setStat('s-ctok', frame.usage.completion_tokens);
+          }
+        }
+      }
+
+      answerEl.innerHTML = '';
+      answerEl.textContent = text || '(empty response)';
+      if (!text) answerEl.className = 'answer empty';
+      setStat('s-total', Math.round(performance.now() - started) + ' ms');
+
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        showError('Cancelled by user.');
+      } else {
+        showError(String(e));
+      }
+      answerEl.querySelector('.cursor')?.remove();
+    } finally {
+      busy(false);
+      controller = null;
+    }
+  }
+
+  $('send').addEventListener('click', send);
+  $('stop').addEventListener('click', () => controller?.abort());
+  $('prompt').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
+  });
+
+  checkHealth();
+})();
+</script>
+</body>
+</html>
