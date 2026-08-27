@@ -1,10 +1,14 @@
 package io.github.mehmetztrk.llmgateway.adapter.out.provider.ollama;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
@@ -34,7 +38,40 @@ class OllamaProviderContractTest extends LlmProviderContract {
 
     @BeforeEach
     void stubChatCompletions() {
+        // Both behaviours live on one path, so the stubs are told apart by the stream flag in the
+        // request body — exactly how the real server distinguishes them.
+        // why the stub matches the body's stream flag and not just the Accept header: an earlier
+        // version matched on Accept alone, and happily served SSE to a request whose body said
+        // stream=false. The adapter had exactly that bug, the stub hid it, and only the live
+        // Ollama test caught it. A stub that accepts a request the real server would reject is
+        // worse than no stub at all.
         WIRE_MOCK.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
+                .withHeader("Accept", containing("text/event-stream"))
+                .withRequestBody(matchingJsonPath("$.stream", equalTo("true")))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/event-stream")
+                        .withBody("""
+                                data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1767225600,\
+                                "model":"qwen2.5:1.5b-instruct","choices":[{"index":0,\
+                                "delta":{"role":"assistant","content":"A gateway "},"finish_reason":null}]}
+
+                                data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1767225600,\
+                                "model":"qwen2.5:1.5b-instruct","choices":[{"index":0,\
+                                "delta":{"content":"sits in front of other services."},"finish_reason":null}]}
+
+                                data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1767225600,\
+                                "model":"qwen2.5:1.5b-instruct","choices":[{"index":0,"delta":{},\
+                                "finish_reason":"stop"}],"usage":{"prompt_tokens":18,"completion_tokens":9,\
+                                "total_tokens":27}}
+
+                                data: [DONE]
+
+                                """)));
+
+        WIRE_MOCK.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
+                .withHeader("Accept", containing("application/json"))
+                .withRequestBody(matchingJsonPath("$.stream", equalTo("false")))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
@@ -70,7 +107,8 @@ class OllamaProviderContractTest extends LlmProviderContract {
                 ProviderId.of("ollama-primary"),
                 WebClient.builder().baseUrl(WIRE_MOCK.baseUrl()).build(),
                 Set.of(MODEL),
-                Duration.ofSeconds(10));
+                Duration.ofSeconds(10),
+                new ObjectMapper());
     }
 
     @Override

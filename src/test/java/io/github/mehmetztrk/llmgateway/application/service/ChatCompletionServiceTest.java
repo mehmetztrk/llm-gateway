@@ -7,6 +7,7 @@ import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.chat.FinishReason;
 import io.github.mehmetztrk.llmgateway.domain.chat.TokenUsage;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -35,6 +37,24 @@ class ChatCompletionServiceTest {
         @Override
         public Mono<Completion> complete(ChatRequest request) {
             return response;
+        }
+
+        @Override
+        public Flux<CompletionChunk> stream(ChatRequest request) {
+            return response.flatMapMany(completion -> Flux.just(
+                    new CompletionChunk.Delta(
+                            completion.id(),
+                            completion.model(),
+                            completion.servedBy(),
+                            completion.message().content(),
+                            completion.createdAt()),
+                    new CompletionChunk.Done(
+                            completion.id(),
+                            completion.model(),
+                            completion.servedBy(),
+                            completion.finishReason(),
+                            completion.usage(),
+                            completion.createdAt())));
         }
     }
 

@@ -78,18 +78,11 @@ class ChatCompletionsApiTest {
     }
 
     @Test
-    @DisplayName("stream=true is refused explicitly until M2, not silently downgraded")
-    void refusesStreamingForNow() {
+    @DisplayName("stream=true switches the same endpoint to server-sent events")
+    void streamingSwitchesContentType() {
         post("""
                         {"model":"mock-fast","messages":[{"role":"user","content":"hi"}],"stream":true}
-                        """)
-                .expectStatus()
-                .isBadRequest()
-                .expectBody()
-                .jsonPath("$.error.code")
-                .isEqualTo("unsupported_parameter")
-                .jsonPath("$.error.type")
-                .isEqualTo("invalid_request_error");
+                        """).expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
     }
 
     @Test

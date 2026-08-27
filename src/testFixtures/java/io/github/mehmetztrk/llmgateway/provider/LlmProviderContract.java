@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.chat.Role;
+import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
@@ -22,6 +25,9 @@ import reactor.test.StepVerifier;
  * {@code integrationTest} source set; fast in-process ones live in {@code test}.
  */
 public abstract class LlmProviderContract {
+
+    /** Generous on purpose: a live provider may be loading a model into VRAM on first contact. */
+    private static final Duration STREAM_TIMEOUT = Duration.ofSeconds(120);
 
     /** A ready-to-use provider. Called once per test, so it may be stateful. */
     protected abstract LlmProvider provider();
@@ -92,6 +98,55 @@ public abstract class LlmProviderContract {
                                     + completion.usage().completionTokens());
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("streams deltas and ends with exactly one Done element")
+    void streamsAndTerminates() {
+        List<CompletionChunk> chunks =
+                provider().stream(sampleRequest()).collectList().block(STREAM_TIMEOUT);
+
+        assertThat(chunks).isNotNull().isNotEmpty();
+
+        List<CompletionChunk> terminals =
+                chunks.stream().filter(CompletionChunk.Done.class::isInstance).toList();
+        assertThat(terminals)
+                .as("the port contract promises exactly one terminal element, always last")
+                .hasSize(1);
+        assertThat(chunks.getLast()).isInstanceOf(CompletionChunk.Done.class);
+
+        String assembled = chunks.stream()
+                .filter(CompletionChunk.Delta.class::isInstance)
+                .map(chunk -> ((CompletionChunk.Delta) chunk).content())
+                .reduce("", String::concat);
+        assertThat(assembled)
+                .as("a stream that yields no text is not a completion")
+                .isNotBlank();
+    }
+
+    @Test
+    @DisplayName("every streamed chunk is attributed to this provider")
+    void streamedChunksAreAttributed() {
+        List<CompletionChunk> chunks =
+                provider().stream(sampleRequest()).collectList().block(STREAM_TIMEOUT);
+
+        assertThat(chunks).isNotNull().allSatisfy(chunk -> {
+            assertThat(chunk.servedBy()).isEqualTo(provider().id());
+            assertThat(chunk.id()).isNotBlank();
+            assertThat(chunk.model()).isNotBlank();
+        });
+    }
+
+    @Test
+    @DisplayName("the stream is demand-driven: nothing is produced beyond what is requested")
+    void streamRespectsBackpressure() {
+        // This is the property that keeps a slow client from turning into unbounded memory growth
+        // inside the gateway. Request a single element, then assert the source stays quiet.
+        StepVerifier.create(provider().stream(sampleRequest()), 1)
+                .expectNextCount(1)
+                .expectNoEvent(Duration.ofMillis(150))
+                .thenCancel()
+                .verify(STREAM_TIMEOUT);
     }
 
     @Test

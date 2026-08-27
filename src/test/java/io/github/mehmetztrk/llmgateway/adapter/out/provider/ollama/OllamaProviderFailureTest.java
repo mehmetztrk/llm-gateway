@@ -8,6 +8,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
@@ -41,7 +42,8 @@ class OllamaProviderFailureTest {
                 ProviderId.of("ollama-primary"),
                 WebClient.builder().baseUrl(WIRE_MOCK.baseUrl()).build(),
                 Set.of(MODEL),
-                timeout);
+                timeout,
+                new ObjectMapper());
     }
 
     private ChatRequest request() {

@@ -1,5 +1,6 @@
 package io.github.mehmetztrk.llmgateway.adapter.out.provider.ollama;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
 import io.github.mehmetztrk.llmgateway.provider.LlmProviderContract;
@@ -45,7 +46,8 @@ class OllamaLiveContractIT extends LlmProviderContract {
                 Set.of(MODEL),
                 // Generous: the first call after startup pays for loading the model into VRAM,
                 // which on a 6 GB laptop GPU is tens of seconds.
-                Duration.ofSeconds(120));
+                Duration.ofSeconds(120),
+                new ObjectMapper());
     }
 
     @Override

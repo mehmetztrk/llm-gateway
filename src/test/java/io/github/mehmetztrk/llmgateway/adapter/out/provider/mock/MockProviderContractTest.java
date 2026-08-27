@@ -19,7 +19,7 @@ class MockProviderContractTest extends LlmProviderContract {
     protected LlmProvider provider() {
         return new MockProvider(
                 ProviderId.of("mock"),
-                new MockProviderProperties(true, Set.of("mock-fast"), Duration.ZERO, 32, 0.0, 42L),
+                new MockProviderProperties(true, Set.of("mock-fast"), Duration.ZERO, Duration.ZERO, 32, 0.0, -1, 42L),
                 FIXED);
     }
 

@@ -28,7 +28,8 @@ class MockProviderTest {
     private MockProvider provider(Duration latency, double errorRate, int completionTokens) {
         return new MockProvider(
                 ProviderId.of("mock"),
-                new MockProviderProperties(true, Set.of("mock-fast"), latency, completionTokens, errorRate, 42L),
+                new MockProviderProperties(
+                        true, Set.of("mock-fast"), latency, Duration.ZERO, completionTokens, errorRate, -1, 42L),
                 FIXED);
     }
 
@@ -114,7 +115,8 @@ class MockProviderTest {
     @Test
     @DisplayName("rejects a nonsensical error rate at construction time")
     void rejectsInvalidErrorRate() {
-        assertThatThrownBy(() -> new MockProviderProperties(true, Set.of("m"), Duration.ZERO, 1, 1.5, 1L))
+        assertThatThrownBy(() ->
+                        new MockProviderProperties(true, Set.of("m"), Duration.ZERO, Duration.ZERO, 1, 1.5, -1, 1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("errorRate");
     }
