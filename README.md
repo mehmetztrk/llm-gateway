@@ -6,13 +6,19 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M1 of 10 — it proxies.** Non-streaming `/v1/chat/completions` works end to end against
-> a local Ollama and against a deterministic mock provider; the official `openai` Python SDK talks
-> to it with only `base_url` changed. Streaming, authentication, rate limiting, quotas, caching and
-> failover are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones
-> land, and no capability is claimed here before it exists and is tested.
+> **Status: M2 of 10 — it proxies and it streams.** `/v1/chat/completions` works end to end,
+> streamed and non-streamed, against a local Ollama and a deterministic mock provider. The official
+> `openai` Python SDK talks to it with only `base_url` changed. Authentication, rate limiting,
+> quotas, caching and failover are not implemented yet — see [Roadmap](#roadmap). This notice is
+> updated as milestones land, and no capability is claimed here before it exists and is tested.
 >
 > **The endpoint is currently unauthenticated.** API keys and tenants arrive in M3.
+
+## Demo console
+
+With the gateway running, open **<http://localhost:8080/>** for a built-in console: pick a model,
+watch tokens stream in, and read the raw SSE frames as they arrive. It is a single static HTML file
+with no dependencies — the zero-budget rule applies to the demo too.
 
 ## Why this exists
 
@@ -117,7 +123,7 @@ should never be enabled against real traffic.
 |---|---|---|
 | M0 | Repo skeleton, compose stack, health endpoint, CI | ✅ done |
 | M1 | Provider port, Ollama + Mock, non-streaming passthrough | ✅ done |
-| M2 | SSE streaming, backpressure, mid-stream failure | ⬜ |
+| M2 | SSE streaming, backpressure, mid-stream failure | ✅ done |
 | M3 | Tenants, API keys, Flyway schema | ⬜ |
 | M4 | Rate limiting, quotas, 429 semantics | ⬜ |
 | M5 | Routing, circuit breaker, failover + chaos test | ⬜ |
