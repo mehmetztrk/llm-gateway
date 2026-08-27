@@ -2,8 +2,10 @@ package io.github.mehmetztrk.llmgateway.application.port.out;
 
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
 import java.util.Set;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -39,4 +41,22 @@ public interface LlmProvider {
      * transport exception, so callers can reason about failure without knowing the vendor.
      */
     Mono<Completion> complete(ChatRequest request);
+
+    /**
+     * Generate the same response incrementally.
+     *
+     * <p>why a separate method rather than a {@code stream} flag on {@link ChatRequest}: the return
+     * types differ, so a flag would force every caller to handle a value that may or may not be
+     * there. Two methods let the compiler keep the two paths apart.
+     *
+     * <p>The returned {@link Flux} must be <b>demand-driven</b>: implementations may not produce
+     * elements faster than they are requested. A provider that pushes eagerly turns a slow client
+     * into unbounded memory growth inside the gateway — the failure mode this milestone exists to
+     * prevent.
+     *
+     * <p>The stream ends either with a {@link CompletionChunk.Done} element followed by completion,
+     * or with an error signal carrying {@link
+     * io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed}. It never simply stops.
+     */
+    Flux<CompletionChunk> stream(ChatRequest request);
 }

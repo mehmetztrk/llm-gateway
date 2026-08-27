@@ -2,6 +2,8 @@ package io.github.mehmetztrk.llmgateway.application.port.in;
 
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -14,4 +16,7 @@ import reactor.core.publisher.Mono;
 public interface ChatCompletionUseCase {
 
     Mono<Completion> complete(ChatRequest request);
+
+    /** The same request, delivered incrementally. See {@code LlmProvider#stream}. */
+    Flux<CompletionChunk> stream(ChatRequest request);
 }
