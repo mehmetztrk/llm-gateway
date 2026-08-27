@@ -3,20 +3,23 @@ package io.github.mehmetztrk.llmgateway.application.port.in;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
 import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
+import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * What the gateway offers the outside world for a non-streamed completion.
+ * What the gateway offers the outside world for a completion.
  *
- * <p>why an inbound port at all, when there is exactly one implementation: it is the contract the
- * web adapter is written against, so the controller cannot reach past it into provider internals,
- * and a test can drive the use case without an HTTP layer.
+ * <p>why the caller is an explicit parameter rather than ambient context: every policy decision
+ * downstream — allow-list now, rate limits in M4, cache scope in M6, ledger attribution in M7 — is
+ * keyed by tenant. Making tenancy a required argument means a new code path cannot silently omit
+ * it; it will not compile. Reading it from a reactive context deeper down would compile fine and
+ * fail at runtime, in production, as a cross-tenant leak.
  */
 public interface ChatCompletionUseCase {
 
-    Mono<Completion> complete(ChatRequest request);
+    Mono<Completion> complete(AuthenticatedCaller caller, ChatRequest request);
 
     /** The same request, delivered incrementally. See {@code LlmProvider#stream}. */
-    Flux<CompletionChunk> stream(ChatRequest request);
+    Flux<CompletionChunk> stream(AuthenticatedCaller caller, ChatRequest request);
 }

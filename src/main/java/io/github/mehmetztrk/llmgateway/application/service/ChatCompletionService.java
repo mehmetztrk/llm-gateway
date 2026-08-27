@@ -7,12 +7,16 @@ import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
 import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.error.GatewayException;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
+import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * The request pipeline. In M1 it is only "pick a provider and call it"; auth, rate limiting,
- * quotas, caching and failover are inserted here in later milestones, in that order.
+ * The request pipeline.
+ *
+ * <p>Order matters and is deliberate: the tenant's policy is checked before a provider is chosen,
+ * so a model a tenant may not use is rejected without a single upstream call. Rate limiting,
+ * quotas, caching and failover slot in around this in later milestones.
  */
 public class ChatCompletionService implements ChatCompletionUseCase {
 
@@ -23,38 +27,34 @@ public class ChatCompletionService implements ChatCompletionUseCase {
     }
 
     @Override
-    public Mono<Completion> complete(ChatRequest request) {
-        // why defer: requireProviderFor throws, and a throw during assembly escapes the reactive
-        // chain as a synchronous exception instead of an onError signal. Mono.defer moves it to
-        // subscription time so every failure reaches the caller through one path.
+    public Mono<Completion> complete(AuthenticatedCaller caller, ChatRequest request) {
+        // why defer: both requireModelAllowed and requireProviderFor throw, and without defer those
+        // throws would escape synchronously at assembly time instead of arriving as onError
+        // signals. Every failure then reaches the caller through one path.
         return Mono.defer(() -> {
+            caller.tenant().requireModelAllowed(request.model());
             LlmProvider provider = registry.requireProviderFor(request.model());
-            return provider.complete(request)
-                    // A provider that leaks a transport exception is a bug in that adapter, but it
-                    // must not reach the client as a 500. Anything not already expressed in the
-                    // domain vocabulary is normalised here.
-                    .onErrorMap(
-                            error -> !(error instanceof GatewayException),
-                            error -> new ProviderCallFailed(
-                                    provider.id(),
-                                    "unexpected error: " + error.getClass().getSimpleName(),
-                                    error));
+            return provider.complete(request).onErrorMap(normaliseFrom(provider));
         });
     }
 
     @Override
-    public Flux<CompletionChunk> stream(ChatRequest request) {
-        // Flux.defer for the same reason Mono.defer is used above: provider lookup can throw, and
-        // that throw must arrive as an onError signal rather than escaping at assembly time.
+    public Flux<CompletionChunk> stream(AuthenticatedCaller caller, ChatRequest request) {
         return Flux.defer(() -> {
+            caller.tenant().requireModelAllowed(request.model());
             LlmProvider provider = registry.requireProviderFor(request.model());
-            return provider.stream(request)
-                    .onErrorMap(
-                            error -> !(error instanceof GatewayException),
-                            error -> new ProviderCallFailed(
-                                    provider.id(),
-                                    "unexpected error: " + error.getClass().getSimpleName(),
-                                    error));
+            return provider.stream(request).onErrorMap(normaliseFrom(provider));
         });
+    }
+
+    /**
+     * A provider that leaks a transport exception is a bug in that adapter, but it must not reach
+     * the client as a 500. Anything not already in the domain vocabulary is normalised here.
+     */
+    private java.util.function.Function<Throwable, Throwable> normaliseFrom(LlmProvider provider) {
+        return error -> error instanceof GatewayException
+                ? error
+                : new ProviderCallFailed(
+                        provider.id(), "unexpected error: " + error.getClass().getSimpleName(), error);
     }
 }
