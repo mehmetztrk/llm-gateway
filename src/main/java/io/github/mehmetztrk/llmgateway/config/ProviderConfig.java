@@ -1,5 +1,6 @@
 package io.github.mehmetztrk.llmgateway.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.ollama.OllamaProvider;
 import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
@@ -35,12 +36,18 @@ public class ProviderConfig {
 
     @Bean
     public ProviderRegistry providerRegistry(
-            ProvidersProperties properties, WebClient.Builder webClientBuilder, Clock clock) {
-        return new ProviderRegistry(buildProviders(properties, webClientBuilder, clock));
+            ProvidersProperties properties,
+            WebClient.Builder webClientBuilder,
+            Clock clock,
+            ObjectMapper objectMapper) {
+        return new ProviderRegistry(buildProviders(properties, webClientBuilder, clock, objectMapper));
     }
 
     private List<LlmProvider> buildProviders(
-            ProvidersProperties properties, WebClient.Builder webClientBuilder, Clock clock) {
+            ProvidersProperties properties,
+            WebClient.Builder webClientBuilder,
+            Clock clock,
+            ObjectMapper objectMapper) {
 
         List<LlmProvider> providers = new ArrayList<>();
 
@@ -57,7 +64,11 @@ public class ProviderConfig {
             }
             ProviderId id = ProviderId.of(entry.getKey());
             providers.add(new OllamaProvider(
-                    id, webClientBuilder.baseUrl(instance.baseUrl()).build(), instance.models(), instance.timeout()));
+                    id,
+                    webClientBuilder.baseUrl(instance.baseUrl()).build(),
+                    instance.models(),
+                    instance.timeout(),
+                    objectMapper));
             log.info("registered provider {} at {} serving {}", id, instance.baseUrl(), instance.models());
         }
 
