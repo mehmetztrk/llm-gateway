@@ -13,7 +13,7 @@ package io.github.mehmetztrk.llmgateway.domain.error;
  * representation needs.
  */
 public abstract sealed class GatewayException extends RuntimeException
-        permits ModelNotAllowed, ModelNotFound, ProviderCallFailed, FeatureNotSupported {
+        permits ModelNotAllowed, ModelNotFound, ProviderCallFailed, FeatureNotSupported, TenantNotFound {
 
     protected GatewayException(String message) {
         super(message);
