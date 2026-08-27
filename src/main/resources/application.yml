@@ -52,6 +52,13 @@ spring.datasource:
     maximum-pool-size: 10
     pool-name: llmgw-pool
 
+spring.data.redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  # Connection-level timeout. The per-operation budget is gateway.rate-limit.timeout, which is
+  # deliberately tighter: the limiter runs before every request and must not add its own latency.
+  timeout: 2s
+
 spring.flyway:
   enabled: true
   locations: classpath:db/migration
@@ -68,6 +75,11 @@ gateway:
     # well-known default credential.
     bootstrap-admin-key: ${GATEWAY_BOOTSTRAP_ADMIN_KEY:}
     bootstrap-tenant-key: ${GATEWAY_BOOTSTRAP_TENANT_KEY:}
+
+  rate-limit:
+    # Short on purpose: a slow Redis must fail fast rather than add latency to every request.
+    # Exceeding it refuses the request — the limiter fails closed. See ADR-0004.
+    timeout: 250ms
 
   observability:
     # Never enable outside local debugging. See GatewayProperties.Observability#logPrompts.

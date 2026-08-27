@@ -8,6 +8,7 @@ import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
 import io.github.mehmetztrk.llmgateway.application.service.AdminService;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
+import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,8 +35,8 @@ public class ApplicationConfig {
     }
 
     @Bean
-    public ChatCompletionUseCase chatCompletionUseCase(ProviderRegistry registry) {
-        return new ChatCompletionService(registry);
+    public ChatCompletionUseCase chatCompletionUseCase(ProviderRegistry registry, RateLimitService limits) {
+        return new ChatCompletionService(registry, limits);
     }
 
     @Bean

@@ -2,9 +2,9 @@ package io.github.mehmetztrk.llmgateway.adapter.in.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.ChatCompletionRequestDto;
-import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.ChatCompletionResponseDto;
 import io.github.mehmetztrk.llmgateway.application.port.in.ChatCompletionUseCase;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -41,25 +41,33 @@ class ChatCompletionsController {
     }
 
     /**
-     * why {@code ResponseEntity<?>} with two branches rather than two mapped endpoints: OpenAI puts
-     * both behaviours on the same path and discriminates on a body field, so any client that flips
-     * {@code stream} must keep working without changing its URL.
+     * why {@code Mono<ResponseEntity<?>>} rather than two mapped endpoints: OpenAI puts both
+     * behaviours on the same path and discriminates on a body field, so any client that flips
+     * {@code stream} must keep working without changing its URL. The Mono is needed because
+     * admission control is asynchronous, and its outcome decides both the status and the headers.
      */
     @PostMapping(
             path = "/chat/completions",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
-    ResponseEntity<?> createChatCompletion(
+    Mono<ResponseEntity<?>> createChatCompletion(
             @AuthenticationPrincipal AuthenticatedCaller caller, @Valid @RequestBody ChatCompletionRequestDto request) {
         ChatRequest domainRequest = OpenAiMapper.toDomain(request);
 
         if (Boolean.TRUE.equals(request.stream())) {
-            return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(streamOf(caller, domainRequest));
+            return chatCompletion.stream(caller, domainRequest)
+                    .map(result -> ResponseEntity.ok()
+                            .headers(headers -> RateLimitHeaders.apply(headers, result))
+                            .contentType(MediaType.TEXT_EVENT_STREAM)
+                            .body(streamOf(result.body())));
         }
 
-        Mono<ChatCompletionResponseDto> body =
-                chatCompletion.complete(caller, domainRequest).map(OpenAiMapper::toWire);
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
+        return chatCompletion
+                .complete(caller, domainRequest)
+                .map(result -> ResponseEntity.ok()
+                        .headers(headers -> RateLimitHeaders.apply(headers, result))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(OpenAiMapper.toWire(result.body())));
     }
 
     /**
@@ -67,25 +75,25 @@ class ChatCompletionsController {
      * them is the classic bug in gateways that stream.
      *
      * <ul>
-     *   <li><b>Before the first chunk</b> — an unknown model, a rejected key, a provider that
-     *       refuses the connection. Nothing has been written, the response is uncommitted, and the
-     *       honest answer is a real HTTP status: 404, 401, 502. An SDK then raises its typed error.
+     *   <li><b>Before the first chunk</b> — an unknown model, a rejected key, a rate limit, a
+     *       provider that refuses the connection. Nothing has been written, the response is
+     *       uncommitted, and the honest answer is a real HTTP status: 404, 401, 429, 502. An SDK
+     *       then raises its typed error.
      *   <li><b>After the first chunk</b> — the status line is long gone and the client already
      *       holds a 200 and part of an answer. The only place left to report the failure is inside
      *       the stream.
      * </ul>
      *
-     * <p>{@code switchOnFirst} is what lets one pipeline serve both: it exposes the first signal
-     * before deciding how the rest of the stream behaves. An error in that first signal is
-     * re-thrown so {@link GatewayErrorHandler} maps it to a status code; everything after it is
-     * caught and turned into an in-band error frame.
+     * <p>Admission failures land in the first category automatically: they happen in the outer Mono,
+     * before this method is ever called. {@code switchOnFirst} covers the same distinction for
+     * failures that originate in the provider.
      */
-    private Flux<ServerSentEvent<String>> streamOf(AuthenticatedCaller caller, ChatRequest request) {
-        return chatCompletion.stream(caller, request).switchOnFirst((firstSignal, chunks) -> {
+    private Flux<ServerSentEvent<String>> streamOf(Flux<CompletionChunk> chunks) {
+        return chunks.switchOnFirst((firstSignal, rest) -> {
             if (firstSignal.isOnError()) {
                 return Flux.error(firstSignal.getThrowable());
             }
-            return chunks
+            return rest
                     // index() pairs each element with its position, which is how the first frame
                     // knows to carry delta.role without the domain modelling "firstness".
                     .index()

@@ -42,6 +42,9 @@ dependencies {
     // why plain JDBC and not R2DBC in a reactive app: see ADR-0006. Short version — Flyway is
     // blocking anyway, and the DB is kept off the request hot path by a Caffeine cache, so the
     // simpler and better-supported stack wins.
+    // Reactive Redis (Lettuce). Unlike JDBC this is genuinely non-blocking, so the rate limiter
+    // sits directly on the request path with no scheduler hop — see ADR-0006 for the contrast.
+    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
@@ -80,6 +83,7 @@ testing {
             useJUnitJupiter()
             dependencies {
                 implementation(project())
+                implementation(testFixtures(project()))
                 implementation("org.springframework.boot:spring-boot-starter-test")
                 implementation("io.projectreactor:reactor-test")
                 implementation(libs.blockhound)

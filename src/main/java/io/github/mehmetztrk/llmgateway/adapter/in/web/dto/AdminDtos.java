@@ -6,6 +6,7 @@ import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +30,18 @@ public final class AdminDtos {
             @NotNull(message = "allowedModels is required") Set<String> allowedModels) {}
 
     public record IssueKeyRequest(String role, String label) {}
+
+    /**
+     * @param monthlyTokenBudget null means no monthly ceiling
+     * @param quotaSoftThreshold fraction of the budget at which the warning header appears
+     */
+    public record SetLimitsRequest(
+            @Positive(message = "requestsPerMinute must be positive") int requestsPerMinute,
+
+            @Positive(message = "tokensPerMinute must be positive") long tokensPerMinute,
+
+            Long monthlyTokenBudget,
+            Double quotaSoftThreshold) {}
 
     public record TenantResponse(UUID id, String name, boolean active, Set<String> allowedModels, Instant createdAt) {
 

@@ -2,6 +2,8 @@ package io.github.mehmetztrk.llmgateway.adapter.in.web;
 
 import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.AdminDtos;
 import io.github.mehmetztrk.llmgateway.application.port.in.AdminUseCase;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
 import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
@@ -70,6 +72,22 @@ class AdminController {
         return offloaded(() -> {
                     TenantId id = TenantId.of(tenantId);
                     admin.setAllowedModels(id, new ModelAllowList(request.allowedModels()));
+                    return admin.getTenant(id);
+                })
+                .map(AdminDtos.TenantResponse::from);
+    }
+
+    @PutMapping("/tenants/{tenantId}/limits")
+    Mono<AdminDtos.TenantResponse> setLimits(
+            @PathVariable UUID tenantId, @Valid @RequestBody AdminDtos.SetLimitsRequest request) {
+        return offloaded(() -> {
+                    TenantId id = TenantId.of(tenantId);
+                    admin.setLimits(
+                            id,
+                            new RateLimitPolicy(request.requestsPerMinute(), request.tokensPerMinute()),
+                            new QuotaPolicy(
+                                    request.monthlyTokenBudget(),
+                                    request.quotaSoftThreshold() == null ? 0.8 : request.quotaSoftThreshold()));
                     return admin.getTenant(id);
                 })
                 .map(AdminDtos.TenantResponse::from);

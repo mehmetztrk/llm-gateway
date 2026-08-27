@@ -3,12 +3,17 @@ package io.github.mehmetztrk.llmgateway.adapter.in.web;
 import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.ErrorResponseDto;
 import io.github.mehmetztrk.llmgateway.domain.error.FeatureNotSupported;
 import io.github.mehmetztrk.llmgateway.domain.error.GatewayException;
+import io.github.mehmetztrk.llmgateway.domain.error.LimiterUnavailable;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
+import io.github.mehmetztrk.llmgateway.domain.error.QuotaExceeded;
+import io.github.mehmetztrk.llmgateway.domain.error.RateLimitExceeded;
 import io.github.mehmetztrk.llmgateway.domain.error.TenantNotFound;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -46,6 +51,25 @@ class GatewayErrorHandler {
                         e);
             case TenantNotFound e ->
                 respond(HttpStatus.NOT_FOUND, e.getMessage(), "invalid_request_error", "tenant_not_found", e);
+            case RateLimitExceeded e -> rateLimited(e);
+            case QuotaExceeded e ->
+                respond(
+                        // 429 rather than 402: OpenAI uses 429 with insufficient_quota, and SDK
+                        // retry logic already understands it. The code, not the status, is what
+                        // tells a client that waiting will not help.
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "You have exceeded your monthly token budget. "
+                                + "This does not reset until the next billing period.",
+                        "insufficient_quota",
+                        "insufficient_quota",
+                        e);
+            case LimiterUnavailable e ->
+                respond(
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        "Rate limiting is temporarily unavailable, so the request was refused.",
+                        "api_error",
+                        "rate_limiter_unavailable",
+                        e);
             // No default branch: GatewayException is abstract and sealed, so this switch is
             // exhaustive and a new subtype will not compile until it is handled here.
         };
@@ -86,6 +110,35 @@ class GatewayErrorHandler {
         log.error("unhandled exception", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponseDto.of("Internal error.", "api_error", "internal_error"));
+    }
+
+    /**
+     * A 429 without {@code Retry-After} is an invitation to hammer, so the refusal carries the
+     * exact wait the bucket calculated. The rate-limit headers go out too: the client should be
+     * able to see how far over it went, not just that it did.
+     */
+    private ResponseEntity<ErrorResponseDto> rateLimited(RateLimitExceeded exception) {
+        RateLimitSnapshot snapshot = exception.snapshot();
+        log.debug("rate_limit_exceeded on {} -> retry after {}s", exception.scope(), snapshot.retryAfterSeconds());
+
+        boolean tokenBucket = exception.scope() == RateLimitExceeded.Scope.TENANT_TOKENS
+                || exception.scope() == RateLimitExceeded.Scope.KEY_TOKENS;
+
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(snapshot.retryAfterSeconds()))
+                .header(
+                        tokenBucket ? RateLimitHeaders.LIMIT_TOKENS : RateLimitHeaders.LIMIT_REQUESTS,
+                        Long.toString(snapshot.limit()))
+                .header(
+                        tokenBucket ? RateLimitHeaders.REMAINING_TOKENS : RateLimitHeaders.REMAINING_REQUESTS,
+                        Long.toString(snapshot.remaining()))
+                .header(
+                        tokenBucket ? RateLimitHeaders.RESET_TOKENS : RateLimitHeaders.RESET_REQUESTS,
+                        Long.toString(snapshot.retryAfterSeconds()))
+                .body(ErrorResponseDto.of(
+                        "Rate limit reached. Please retry after " + snapshot.retryAfterSeconds() + " seconds.",
+                        "rate_limit_error",
+                        "rate_limit_exceeded"));
     }
 
     private ResponseEntity<ErrorResponseDto> respond(
