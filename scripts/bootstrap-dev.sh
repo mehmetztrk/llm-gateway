@@ -2,13 +2,18 @@
 #
 # One-shot host setup for the LLM gateway on Debian/Ubuntu.
 #
-#   ./scripts/bootstrap-dev.sh
+#   ./scripts/bootstrap-dev.sh              # install everything, then start the stack
+#   ./scripts/bootstrap-dev.sh --no-stack   # install only, do not start containers
 #
 # Installs, skipping anything already present:
 #   1. Temurin JDK 21 via SDKMAN            (user-level, no sudo)
 #   2. Docker Engine + compose plugin       (sudo)
 #   3. NVIDIA Container Toolkit             (sudo, only if an NVIDIA GPU is detected)
 #   4. k6 load-testing CLI                  (sudo, needed from M9 onwards)
+#   5. Brings up the compose stack and downloads the Ollama models
+#
+# You are prompted for your sudo password exactly once, at the start. A background keepalive
+# refreshes the credential so a long apt run cannot trigger a second prompt halfway through.
 #
 # Ollama is deliberately NOT installed on the host: both instances run as containers so that
 # `docker compose up -d` reproduces the whole system on any machine.
@@ -18,6 +23,10 @@
 set -euo pipefail
 
 JAVA_VERSION="21.0.12+1.1-tem"
+START_STACK=1
+[[ "${1:-}" == "--no-stack" ]] && START_STACK=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 readonly BOLD=$'\033[1m' GREEN=$'\033[32m' YELLOW=$'\033[33m' RED=$'\033[31m' RESET=$'\033[0m'
 step() { printf '\n%s==> %s%s\n' "$BOLD" "$1" "$RESET"; }
@@ -34,7 +43,18 @@ fi
 
 step "Checking sudo access (needed for Docker and k6)"
 sudo -v || die "sudo is required."
-ok "sudo granted"
+
+# Keep the sudo timestamp warm for the rest of the run. Installing Docker takes longer than the
+# default 15-minute timestamp on a slow connection, and a second password prompt buried in apt
+# output is exactly the kind of thing that leaves a half-installed machine behind.
+while true; do
+    sudo -n true 2>/dev/null || exit
+    sleep 60
+done &
+SUDO_KEEPALIVE_PID=$!
+# shellcheck disable=SC2064
+trap "kill $SUDO_KEEPALIVE_PID 2>/dev/null || true" EXIT
+ok "sudo granted (you will not be asked again)"
 
 # ---------------------------------------------------------------- 1. Java 21
 step "Java 21 (Temurin, via SDKMAN)"
@@ -141,19 +161,53 @@ else
     ok "k6 installed"
 fi
 
+# ------------------------------------------------------- 5. start the stack
+# why `sg docker -c`: `usermod -aG` only affects newly created login sessions, so the shell
+# running this script still lacks the docker group. `sg` starts a subshell with the group
+# applied, which avoids forcing a logout in the middle of setup.
+dockerx() { sg docker -c "cd '$REPO_ROOT' && $1"; }
+
+if [[ $START_STACK -eq 1 ]]; then
+    step "Verifying GPU passthrough"
+    if ! command -v nvidia-smi >/dev/null; then
+        gpu_ok=0
+    elif dockerx "docker run --rm --gpus all ubuntu:22.04 nvidia-smi -L" >/dev/null 2>&1; then
+        gpu_ok=1
+        ok "containers can see the GPU"
+    else
+        gpu_ok=0
+    fi
+
+    if [[ $gpu_ok -eq 0 ]]; then
+        warn "GPU not usable from containers — falling back to CPU-only."
+        # Rewrite COMPOSE_FILE rather than failing: a CPU-only stack is slower but complete,
+        # and MockProvider (what the benchmarks actually measure) never touches the GPU.
+        sed -i 's|^COMPOSE_FILE=.*|COMPOSE_FILE=docker/compose.yaml|' "$REPO_ROOT/.env"
+        ok ".env switched to docker/compose.yaml (CPU-only)"
+    fi
+
+    step "Starting the stack"
+    dockerx "docker compose up -d"
+    dockerx "docker compose ps"
+
+    step "Downloading Ollama models (~2 GB, one time)"
+    dockerx "./scripts/pull-models.sh"
+fi
+
 # ---------------------------------------------------------------- summary
 step "Summary"
 "$SDKMAN_DIR/candidates/java/$JAVA_VERSION/bin/java" -version 2>&1 | head -1
-docker --version 2>/dev/null || warn "docker not on PATH yet"
-docker compose version 2>/dev/null | head -1 || true
-k6 version 2>/dev/null || true
+sg docker -c "docker --version" 2>/dev/null || warn "docker not usable yet"
+sg docker -c "docker compose version" 2>/dev/null | head -1 || true
+k6 version 2>/dev/null | head -1 || true
 
 cat <<'NEXT'
 
-Next steps:
-  1. If the script added you to the docker group, log out and back in (or: newgrp docker).
-  2. docker compose up -d          # from the repository root
-  3. ./scripts/pull-models.sh      # downloads the Ollama models (~2 GB, one time)
-  4. ./gradlew check               # build and test
+Done. Log out and back in once so `docker` works without `sg docker -c` in your own shell.
+
+Then:
+  ./gradlew check                                            # build and test
+  ./gradlew bootRun --args='--spring.profiles.active=local'  # run the gateway
+  curl -s localhost:8080/actuator/health
 
 NEXT
