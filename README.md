@@ -6,9 +6,13 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M0 of 10 — skeleton.** The build, the container stack and CI are in place; the
-> gateway does not proxy anything yet. See [Roadmap](#roadmap). This notice is updated as
-> milestones land, and no capability is claimed here before it exists and is tested.
+> **Status: M1 of 10 — it proxies.** Non-streaming `/v1/chat/completions` works end to end against
+> a local Ollama and against a deterministic mock provider; the official `openai` Python SDK talks
+> to it with only `base_url` changed. Streaming, authentication, rate limiting, quotas, caching and
+> failover are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones
+> land, and no capability is claimed here before it exists and is tested.
+>
+> **The endpoint is currently unauthenticated.** API keys and tenants arrive in M3.
 
 ## Why this exists
 
@@ -75,6 +79,18 @@ Then run the gateway:
 curl -s http://localhost:8080/actuator/health
 ```
 
+Send it a completion — `mock-fast` needs no model and no GPU:
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"mock-fast","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Or prove SDK compatibility for yourself:
+
+```bash
+pip install openai && python scripts/verify-openai-sdk.py --model qwen2.5:1.5b-instruct
+```
+
 No NVIDIA GPU? Set `COMPOSE_FILE=docker/compose.yaml` in `.env` — everything still runs, on CPU.
 
 ## Stack
@@ -100,7 +116,7 @@ should never be enabled against real traffic.
 | | Milestone | Status |
 |---|---|---|
 | M0 | Repo skeleton, compose stack, health endpoint, CI | ✅ done |
-| M1 | Provider port, Ollama + Mock, non-streaming passthrough | ⬜ |
+| M1 | Provider port, Ollama + Mock, non-streaming passthrough | ✅ done |
 | M2 | SSE streaming, backpressure, mid-stream failure | ⬜ |
 | M3 | Tenants, API keys, Flyway schema | ⬜ |
 | M4 | Rate limiting, quotas, 429 semantics | ⬜ |
