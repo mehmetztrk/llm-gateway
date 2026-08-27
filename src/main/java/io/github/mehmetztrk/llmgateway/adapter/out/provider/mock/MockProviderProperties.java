@@ -13,18 +13,23 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *     benchmark can never accidentally hit a real model, or vice versa.
  * @param latency artificial delay before responding. Default is zero so correctness tests are not
  *     slowed down; benchmark profiles raise it to imitate a real provider.
+ * @param chunkDelay artificial gap between streamed chunks, i.e. the inverse of tokens per second.
  * @param completionTokens how many tokens to "generate". Fixed, because token counts feed quota and
  *     cost assertions that need a known input.
  * @param errorRate probability in [0, 1] of failing the call, evaluated deterministically per
  *     request. Used to exercise retry, circuit breaking and failover without unplugging anything.
+ * @param failAfterChunks emit this many chunks and then fail, to exercise mid-stream failure
+ *     handling. Negative means never — a stream that always dies is not a useful default.
  * @param seed base seed; change it to get a different but still reproducible universe.
  */
 public record MockProviderProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue({"mock-fast", "mock-echo"}) Set<String> models,
         @DefaultValue("0ms") Duration latency,
+        @DefaultValue("0ms") Duration chunkDelay,
         @DefaultValue("32") int completionTokens,
         @DefaultValue("0.0") double errorRate,
+        @DefaultValue("-1") int failAfterChunks,
         @DefaultValue("42") long seed) {
 
     public MockProviderProperties {
@@ -35,5 +40,9 @@ public record MockProviderProperties(
             throw new IllegalArgumentException("completionTokens must not be negative");
         }
         models = Set.copyOf(models);
+    }
+
+    public boolean failsMidStream() {
+        return failAfterChunks >= 0;
     }
 }

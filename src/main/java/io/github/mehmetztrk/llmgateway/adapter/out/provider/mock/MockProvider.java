@@ -4,6 +4,7 @@ import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
+import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.chat.FinishReason;
 import io.github.mehmetztrk.llmgateway.domain.chat.TokenUsage;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
@@ -11,10 +12,12 @@ import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Random;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.zip.CRC32;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -72,17 +75,31 @@ public class MockProvider implements LlmProvider {
         return properties.models();
     }
 
+    /**
+     * why two independent Randoms per request instead of one: drawing the failure decision from the
+     * same sequence that generates the text shifts that sequence by one. The streamed and
+     * non-streamed paths would then produce different words for an identical request — a divergence
+     * that would make the M6 cache silently wrong, since a cached streamed answer and a live
+     * non-streamed one would no longer agree. Separate derivations keep both paths byte-identical.
+     */
+    private Random contentRandom(long seed) {
+        return new Random(seed);
+    }
+
+    private Random failureRandom(long seed) {
+        return new Random(seed * 31 + 7);
+    }
+
     @Override
     public Mono<Completion> complete(ChatRequest request) {
         long seed = seedFor(request);
-        Random random = new Random(seed);
 
         Mono<Completion> result = Mono.defer(() -> {
-            if (random.nextDouble() < properties.errorRate()) {
+            if (failureRandom(seed).nextDouble() < properties.errorRate()) {
                 return Mono.<Completion>error(
                         new ProviderCallFailed(id, "simulated failure (errorRate=" + properties.errorRate() + ")"));
             }
-            return Mono.just(build(request, random));
+            return Mono.just(build(request, contentRandom(seed)));
         });
 
         // why delayElement and not Thread.sleep: sleeping would block an event-loop thread, and
@@ -134,6 +151,65 @@ public class MockProvider implements LlmProvider {
             checksum.update(message.content().getBytes(StandardCharsets.UTF_8));
         }
         return properties.seed() * 31 + checksum.getValue();
+    }
+
+    @Override
+    public Flux<CompletionChunk> stream(ChatRequest request) {
+        long seed = seedFor(request);
+        String completionId = "chatcmpl-mock-" + Long.toHexString(seed);
+        Instant createdAt = clock.instant();
+        int total = properties.completionTokens();
+
+        // why Flux.generate and not Flux.create/fromIterable: generate is pull-based — its
+        // generator function runs once per unit of downstream demand. That makes this provider
+        // structurally incapable of racing ahead of a slow consumer, which is exactly the property
+        // the streaming path must have end to end. Flux.create with an unbounded overflow strategy
+        // would happily buffer the whole response in memory instead.
+        Flux<CompletionChunk> chunks = Flux.generate(
+                // Per-subscription state: a retry re-runs this supplier and therefore replays the
+                // identical sequence, rather than continuing a shared Random.
+                () -> new StreamState(0, contentRandom(seed)), (state, sink) -> {
+                    if (properties.failsMidStream() && state.emitted() == properties.failAfterChunks()) {
+                        sink.error(new ProviderCallFailed(
+                                id, "simulated mid-stream failure after " + state.emitted() + " chunks"));
+                        return state;
+                    }
+                    if (state.emitted() < total) {
+                        String word = LOREM[state.random().nextInt(LOREM.length)];
+                        sink.next(new CompletionChunk.Delta(
+                                completionId,
+                                request.model(),
+                                id,
+                                state.emitted() == 0 ? word : " " + word,
+                                createdAt));
+                        return state.next();
+                    }
+                    sink.next(new CompletionChunk.Done(
+                            completionId,
+                            request.model(),
+                            id,
+                            FinishReason.STOP,
+                            new TokenUsage(estimatePromptTokens(request), total),
+                            createdAt));
+                    sink.complete();
+                    return state.next();
+                });
+
+        Flux<CompletionChunk> withFailureRate =
+                Flux.defer(() -> failureRandom(seed).nextDouble() < properties.errorRate()
+                        ? Flux.<CompletionChunk>error(new ProviderCallFailed(
+                                id, "simulated failure (errorRate=" + properties.errorRate() + ")"))
+                        : chunks);
+
+        return properties.chunkDelay().isZero()
+                ? withFailureRate
+                : withFailureRate.delayElements(properties.chunkDelay());
+    }
+
+    private record StreamState(int emitted, Random random) {
+        StreamState next() {
+            return new StreamState(emitted + 1, random);
+        }
     }
 
     /** Exposed so tests can assert the configured latency without reaching into properties. */

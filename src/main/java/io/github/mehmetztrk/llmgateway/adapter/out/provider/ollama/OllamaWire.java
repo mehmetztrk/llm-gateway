@@ -42,6 +42,20 @@ final class OllamaWire {
             Message message,
             @JsonProperty("finish_reason") String finishReason) {}
 
+    /** One {@code data:} frame of a streamed response. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ChatStreamChunk(String id, String model, Long created, List<StreamChoice> choices, Usage usage) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record StreamChoice(
+            Integer index,
+            Delta delta,
+            @JsonProperty("finish_reason") String finishReason) {}
+
+    /** The incremental payload. Both fields are absent on some frames, hence the nullability. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Delta(String role, String content) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Usage(
             @JsonProperty("prompt_tokens") Integer promptTokens,
