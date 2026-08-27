@@ -6,6 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -48,7 +49,10 @@ import org.testcontainers.utility.DockerImageName;
             "gateway.security.bootstrap-tenant-key=" + AbstractGatewayIT.TENANT_KEY,
             // Short enough that a revocation test does not have to wait a minute, long enough that
             // it still proves entries are actually cached.
-            "gateway.security.cache-ttl=2s"
+            "gateway.security.cache-ttl=2s",
+            // Limits high enough that tests about something else never trip them. Tests that are
+            // about limits set their own with the admin API.
+            "gateway.rate-limit.timeout=2s"
         })
 @AutoConfigureWebTestClient(timeout = "30s")
 public abstract class AbstractGatewayIT {
@@ -57,14 +61,24 @@ public abstract class AbstractGatewayIT {
     public static final String TENANT_KEY = "llmgw_test_tenant_key";
 
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
                     DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("llmgw")
             .withUsername("llmgw")
             .withPassword("llmgw");
 
+    /**
+     * why a plain {@link GenericContainer} with an explicit connection name rather than a dedicated
+     * Redis module: Spring Boot resolves the connection details from the name alone, and one less
+     * dependency is one less thing to keep in step with the Boot BOM.
+     */
+    @ServiceConnection(name = "redis")
+    static final GenericContainer<?> REDIS =
+            new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+
     static {
         POSTGRES.start();
+        REDIS.start();
     }
 
     @Autowired

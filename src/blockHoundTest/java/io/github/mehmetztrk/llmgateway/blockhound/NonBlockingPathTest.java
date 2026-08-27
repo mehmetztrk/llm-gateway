@@ -5,16 +5,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProviderProperties;
+import io.github.mehmetztrk.llmgateway.application.port.in.GatewayResult;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
+import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
 import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
 import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
+import io.github.mehmetztrk.llmgateway.limits.InMemoryQuotaStore;
+import io.github.mehmetztrk.llmgateway.limits.InMemoryRateLimiter;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -48,6 +54,8 @@ class NonBlockingPathTest {
 
     private static final Clock FIXED = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
 
+    private static final RateLimitPolicy GENEROUS = new RateLimitPolicy(1_000_000, 1_000_000_000L);
+
     @BeforeAll
     static void installBlockHound() {
         BlockHound.install();
@@ -58,12 +66,15 @@ class NonBlockingPathTest {
                 ProviderId.of("mock"),
                 new MockProviderProperties(true, Set.of("mock-fast"), Duration.ZERO, Duration.ZERO, 16, 0.0, -1, 42L),
                 FIXED);
-        return new ChatCompletionService(new ProviderRegistry(List.of(provider)));
+        return new ChatCompletionService(
+                new ProviderRegistry(List.of(provider)),
+                new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()));
     }
 
     private AuthenticatedCaller caller() {
-        Tenant tenant = new Tenant(TenantId.random(), "bh", true, ModelAllowList.ANY, FIXED.instant());
-        return new AuthenticatedCaller(tenant, UUID.randomUUID(), ApiKeyRole.TENANT);
+        Tenant tenant = new Tenant(
+                TenantId.random(), "bh", true, ModelAllowList.ANY, GENEROUS, QuotaPolicy.UNLIMITED, FIXED.instant());
+        return new AuthenticatedCaller(tenant, UUID.randomUUID(), ApiKeyRole.TENANT, GENEROUS);
     }
 
     private ChatRequest request() {
@@ -90,7 +101,7 @@ class NonBlockingPathTest {
         String content = service()
                 .complete(caller(), request())
                 .subscribeOn(Schedulers.parallel())
-                .map(completion -> completion.message().content())
+                .map(result -> result.body().message().content())
                 .block(Duration.ofSeconds(10));
 
         assertThat(content).isNotBlank();
@@ -100,6 +111,7 @@ class NonBlockingPathTest {
     @DisplayName("a streamed completion runs without blocking a non-blocking thread")
     void streamingDoesNotBlock() {
         Long chunks = service().stream(caller(), request())
+                .flatMapMany(GatewayResult::body)
                 .subscribeOn(Schedulers.parallel())
                 .count()
                 .block(Duration.ofSeconds(10));

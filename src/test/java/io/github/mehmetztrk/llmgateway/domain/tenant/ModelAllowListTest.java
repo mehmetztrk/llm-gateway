@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,7 +42,13 @@ class ModelAllowListTest {
     @DisplayName("a tenant refuses a model outside its list with a typed domain error")
     void tenantEnforcesItsOwnPolicy() {
         Tenant tenant = new Tenant(
-                TenantId.random(), "acme", true, ModelAllowList.of("mock-fast"), Instant.parse("2026-01-01T00:00:00Z"));
+                TenantId.random(),
+                "acme",
+                true,
+                ModelAllowList.of("mock-fast"),
+                new RateLimitPolicy(60, 100_000),
+                QuotaPolicy.UNLIMITED,
+                Instant.parse("2026-01-01T00:00:00Z"));
 
         tenant.requireModelAllowed("mock-fast");
 

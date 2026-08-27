@@ -13,12 +13,16 @@ import io.github.mehmetztrk.llmgateway.domain.chat.TokenUsage;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
 import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
 import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
+import io.github.mehmetztrk.llmgateway.limits.InMemoryQuotaStore;
+import io.github.mehmetztrk.llmgateway.limits.InMemoryRateLimiter;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -38,12 +42,22 @@ class ChatCompletionServiceTest {
 
     private static final ProviderId MOCK = ProviderId.of("stub");
 
+    /** Limits high enough that these tests never trip them; M4 exercises the limiter separately. */
+    private static final RateLimitPolicy GENEROUS = new RateLimitPolicy(1_000_000, 1_000_000_000L);
+
     /** A caller allowed to use every model, so these tests isolate routing from policy. */
     private static final AuthenticatedCaller CALLER = new AuthenticatedCaller(
             new Tenant(
-                    TenantId.random(), "test-tenant", true, ModelAllowList.ANY, Instant.parse("2026-01-01T00:00:00Z")),
+                    TenantId.random(),
+                    "test-tenant",
+                    true,
+                    ModelAllowList.ANY,
+                    GENEROUS,
+                    QuotaPolicy.UNLIMITED,
+                    Instant.parse("2026-01-01T00:00:00Z")),
             UUID.randomUUID(),
-            ApiKeyRole.TENANT);
+            ApiKeyRole.TENANT,
+            GENEROUS);
 
     /** A minimal hand-rolled stub. why not Mockito: this is shorter, and it compiles. */
     private record StubProvider(ProviderId id, Set<String> supportedModels, Mono<Completion> response)
@@ -84,7 +98,9 @@ class ChatCompletionServiceTest {
     }
 
     private ChatCompletionService serviceWith(LlmProvider... providers) {
-        return new ChatCompletionService(new ProviderRegistry(List.of(providers)));
+        return new ChatCompletionService(
+                new ProviderRegistry(List.of(providers)),
+                new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()));
     }
 
     @Test
@@ -95,7 +111,7 @@ class ChatCompletionServiceTest {
 
         StepVerifier.create(serviceWith(other, target)
                         .complete(CALLER, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
-                .assertNext(result -> assertThat(result.servedBy()).isEqualTo(MOCK))
+                .assertNext(result -> assertThat(result.body().servedBy()).isEqualTo(MOCK))
                 .verifyComplete();
     }
 
@@ -149,9 +165,12 @@ class ChatCompletionServiceTest {
                         "restricted",
                         true,
                         ModelAllowList.of("something-else"),
+                        GENEROUS,
+                        QuotaPolicy.UNLIMITED,
                         Instant.parse("2026-01-01T00:00:00Z")),
                 UUID.randomUUID(),
-                ApiKeyRole.TENANT);
+                ApiKeyRole.TENANT,
+                GENEROUS);
 
         LlmProvider provider = new StubProvider(
                 MOCK, Set.of("stub-model"), Mono.error(new AssertionError("provider must not be called")));
@@ -172,9 +191,12 @@ class ChatCompletionServiceTest {
                         "restricted",
                         true,
                         ModelAllowList.NONE,
+                        GENEROUS,
+                        QuotaPolicy.UNLIMITED,
                         Instant.parse("2026-01-01T00:00:00Z")),
                 UUID.randomUUID(),
-                ApiKeyRole.TENANT);
+                ApiKeyRole.TENANT,
+                GENEROUS);
 
         LlmProvider provider = new StubProvider(MOCK, Set.of("stub-model"), Mono.just(completion()));
 
