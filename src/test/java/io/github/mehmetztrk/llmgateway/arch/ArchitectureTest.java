@@ -77,6 +77,21 @@ class ArchitectureTest {
             .as("application must depend on ports, never on adapter implementations")
             .allowEmptyShould(true);
 
+    /**
+     * The application layer holds the use cases and may use Reactor, but not Spring. Bean wiring
+     * lives in {@code config}, which is what lets every use case be built with {@code new} in a
+     * unit test — no context to start, no annotation to understand.
+     */
+    @ArchTest
+    static final ArchRule application_is_framework_free = noClasses()
+            .that()
+            .resideInAPackage("..llmgateway.application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.springframework..", "jakarta..", "com.fasterxml.jackson..")
+            .as("application must not depend on Spring, Jakarta or Jackson — only on domain and Reactor")
+            .allowEmptyShould(true);
+
     @ArchTest
     static final ArchRule no_field_injection = noFields()
             .should()

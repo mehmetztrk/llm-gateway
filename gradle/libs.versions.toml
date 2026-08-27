@@ -11,9 +11,13 @@ springDependencyManagement = "1.1.7"
 spotless = "8.10.0"
 palantirJavaFormat = "2.97.0"
 archunit = "1.5.0"
+# The shaded standalone jar: WireMock embeds its own Jetty, and the unshaded artifact fights with
+# whatever servlet stack Spring Boot happens to put on the test classpath.
+wiremock = "3.13.2"
 
 [libraries]
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+wiremock = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

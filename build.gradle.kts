@@ -1,5 +1,10 @@
 plugins {
     java
+    // why test fixtures: the provider contract test must run against MockProvider in `test` and
+    // against a live Ollama in `integrationTest`. Test fixtures are the Gradle-native way to share
+    // test code between source sets — the alternative, bolting `sourceSets["test"].output` onto
+    // the integration classpath, silently drags every unit test onto it too.
+    `java-test-fixtures`
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.spotless)
@@ -40,7 +45,11 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.projectreactor:reactor-test")
     testImplementation(libs.archunit.junit5)
+    testImplementation(libs.wiremock)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    testFixturesImplementation("org.springframework.boot:spring-boot-starter-test")
+    testFixturesImplementation("io.projectreactor:reactor-test")
 }
 
 // why a separate source set, not @Tag on the same one: integration tests need Docker and take
@@ -56,6 +65,7 @@ testing {
             useJUnitJupiter()
             dependencies {
                 implementation(project())
+                implementation(testFixtures(project()))
                 implementation("org.springframework.boot:spring-boot-starter-test")
                 implementation("io.projectreactor:reactor-test")
             }
