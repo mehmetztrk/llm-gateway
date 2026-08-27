@@ -103,6 +103,15 @@
 
 <main>
   <section class="controls">
+    <label for="apiKey">API key</label>
+    <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
+           placeholder="llmgw_...">
+    <p class="hint" style="margin-top:6px">
+      Sent as <code>Authorization: Bearer</code>. Kept in this browser's localStorage only —
+      the page never sends it anywhere but this gateway. Running the <code>local</code> profile
+      seeds a demo key; see <code>application-local.yml</code>.
+    </p>
+
     <label for="model">Model</label>
     <select id="model">
       <optgroup label="Mock provider — deterministic, no GPU">
@@ -177,6 +186,15 @@
   const answerEl = $('answer'), rawEl = $('raw'), errEl = $('error');
   let controller = null;
 
+  const KEY_STORAGE = 'llmgw.apiKey';
+  $('apiKey').value = localStorage.getItem(KEY_STORAGE) ?? '';
+  $('apiKey').addEventListener('change', (e) => localStorage.setItem(KEY_STORAGE, e.target.value.trim()));
+
+  const authHeaders = () => {
+    const key = $('apiKey').value.trim();
+    return key ? { 'Authorization': 'Bearer ' + key } : {};
+  };
+
   const setStat = (id, value) => { $(id).textContent = value; };
   const resetStats = () => ['s-ttfb','s-total','s-frames','s-ptok','s-ctok','s-status']
     .forEach((id) => setStat(id, '—'));
@@ -230,7 +248,7 @@
     try {
       const res = await fetch('/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(buildBody(stream)),
         signal: controller.signal
       });
