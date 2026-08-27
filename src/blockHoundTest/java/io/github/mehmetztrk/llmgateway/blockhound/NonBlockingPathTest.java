@@ -1,0 +1,109 @@
+package io.github.mehmetztrk.llmgateway.blockhound;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
+import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProviderProperties;
+import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
+import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
+import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
+import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
+import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
+import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
+import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
+import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
+import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import reactor.blockhound.BlockHound;
+import reactor.blockhound.BlockingOperationError;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+/**
+ * Proves that the completion pipeline never blocks a non-blocking thread.
+ *
+ * <p>ADR-0002 chose WebFlux, and the price of that choice is that a single blocking call on an
+ * event-loop thread degrades throughput in a way ordinary tests cannot see — the suite still
+ * passes, and the damage only shows up under load. BlockHound instruments the JVM so that a
+ * blocking call from a non-blocking thread throws instead of quietly succeeding.
+ *
+ * <p><b>why this lives in its own source set and its own JVM.</b> {@code BlockHound.install()} is
+ * global and permanent for the process. Installed alongside the rest of the suite, Spring context
+ * start-up trips it on framework code that is legitimately blocking, and the only way to get green
+ * again is an allow-list so broad that the tool stops detecting anything. A separate Gradle test
+ * task scopes the instrumentation to the code it is meant to police. See {@code build.gradle.kts}.
+ */
+class NonBlockingPathTest {
+
+    private static final Clock FIXED = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+
+    @BeforeAll
+    static void installBlockHound() {
+        BlockHound.install();
+    }
+
+    private ChatCompletionService service() {
+        MockProvider provider = new MockProvider(
+                ProviderId.of("mock"),
+                new MockProviderProperties(true, Set.of("mock-fast"), Duration.ZERO, Duration.ZERO, 16, 0.0, -1, 42L),
+                FIXED);
+        return new ChatCompletionService(new ProviderRegistry(List.of(provider)));
+    }
+
+    private AuthenticatedCaller caller() {
+        Tenant tenant = new Tenant(TenantId.random(), "bh", true, ModelAllowList.ANY, FIXED.instant());
+        return new AuthenticatedCaller(tenant, UUID.randomUUID(), ApiKeyRole.TENANT);
+    }
+
+    private ChatRequest request() {
+        return ChatRequest.of("mock-fast", ChatMessage.user("hello"));
+    }
+
+    @Test
+    @DisplayName("BlockHound is actually armed")
+    void blockHoundIsArmed() {
+        // A test suite that silently fails to instrument the JVM would pass every assertion below
+        // while proving nothing. Verify the detector works before trusting it.
+        assertThatThrownBy(() -> Mono.fromCallable(() -> {
+                            Thread.sleep(1);
+                            return "should not get here";
+                        })
+                        .subscribeOn(Schedulers.parallel())
+                        .block())
+                .hasRootCauseInstanceOf(BlockingOperationError.class);
+    }
+
+    @Test
+    @DisplayName("a non-streamed completion runs without blocking a non-blocking thread")
+    void completionDoesNotBlock() {
+        String content = service()
+                .complete(caller(), request())
+                .subscribeOn(Schedulers.parallel())
+                .map(completion -> completion.message().content())
+                .block(Duration.ofSeconds(10));
+
+        assertThat(content).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("a streamed completion runs without blocking a non-blocking thread")
+    void streamingDoesNotBlock() {
+        Long chunks = service().stream(caller(), request())
+                .subscribeOn(Schedulers.parallel())
+                .count()
+                .block(Duration.ofSeconds(10));
+
+        assertThat(chunks).isEqualTo(17L);
+    }
+}

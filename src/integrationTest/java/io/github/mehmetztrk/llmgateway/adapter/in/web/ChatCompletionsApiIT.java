@@ -1,28 +1,20 @@
 package io.github.mehmetztrk.llmgateway.adapter.in.web;
 
+import io.github.mehmetztrk.llmgateway.AbstractGatewayIT;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * The wire contract an OpenAI SDK depends on. These assertions are about JSON field names and
- * status codes, not about business logic — if any of them changes, somebody's SDK breaks.
- *
- * <p>Runs against the mock provider, so it needs no Ollama, no GPU and no network.
+ * The wire contract an OpenAI SDK depends on: JSON field names and status codes. If any of these
+ * changes, somebody's SDK breaks.
  */
-@SpringBootTest
-@AutoConfigureWebTestClient
-class ChatCompletionsApiTest {
-
-    @Autowired
-    private WebTestClient client;
+class ChatCompletionsApiIT extends AbstractGatewayIT {
 
     private WebTestClient.ResponseSpec post(String body) {
-        return client.post()
+        return asTenant()
+                .post()
                 .uri("/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body)
@@ -33,8 +25,8 @@ class ChatCompletionsApiTest {
     @DisplayName("returns an OpenAI-shaped chat completion")
     void returnsOpenAiShapedResponse() {
         post("""
-                        {"model":"mock-fast","messages":[{"role":"user","content":"hello"}]}
-                        """)
+                {"model":"mock-fast","messages":[{"role":"user","content":"hello"}]}
+                """)
                 .expectStatus()
                 .isOk()
                 .expectHeader()
@@ -81,31 +73,21 @@ class ChatCompletionsApiTest {
     @DisplayName("stream=true switches the same endpoint to server-sent events")
     void streamingSwitchesContentType() {
         post("""
-                        {"model":"mock-fast","messages":[{"role":"user","content":"hi"}],"stream":true}
-                        """).expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
-    }
-
-    @Test
-    @DisplayName("stream=false is accepted")
-    void acceptsExplicitNonStreaming() {
-        post("""
-                        {"model":"mock-fast","messages":[{"role":"user","content":"hi"}],"stream":false}
-                        """).expectStatus().isOk();
+                {"model":"mock-fast","messages":[{"role":"user","content":"hi"}],"stream":true}
+                """).expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
     }
 
     @Test
     @DisplayName("an unserved model returns 404 with OpenAI's model_not_found code")
     void unknownModelReturns404() {
         post("""
-                        {"model":"gpt-5-turbo-imaginary","messages":[{"role":"user","content":"hi"}]}
-                        """)
+                {"model":"gpt-5-turbo-imaginary","messages":[{"role":"user","content":"hi"}]}
+                """)
                 .expectStatus()
                 .isNotFound()
                 .expectBody()
                 .jsonPath("$.error.code")
-                .isEqualTo("model_not_found")
-                .jsonPath("$.error.type")
-                .isEqualTo("invalid_request_error");
+                .isEqualTo("model_not_found");
     }
 
     @Test

@@ -2,31 +2,20 @@ package io.github.mehmetztrk.llmgateway;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * Smoke test: the context starts and the health endpoint answers.
+ * Smoke test: the context starts against a real database and the probes answer.
  *
- * <p>why {@code WebTestClient} with a MOCK environment rather than a real port: it drives the full
- * WebFlux filter chain and handler mapping in-process, so we test routing and serialisation without
- * paying for a TCP listener. Field injection is fine here and only here — the ArchUnit rule
- * deliberately excludes test sources.
+ * <p>No credential is presented on purpose. Health and readiness must be reachable without one, or
+ * an orchestrator could never distinguish "still starting" from "misconfigured" — and a probe that
+ * needs a secret is a probe that fails for the wrong reasons.
  */
-@SpringBootTest
-@AutoConfigureWebTestClient
-class HealthEndpointTest {
-
-    @Autowired
-    private WebTestClient webTestClient;
+class HealthEndpointIT extends AbstractGatewayIT {
 
     @Test
-    @DisplayName("GET /actuator/health reports UP")
+    @DisplayName("GET /actuator/health reports UP without authentication")
     void healthEndpointReportsUp() {
-        webTestClient
-                .get()
+        client.get()
                 .uri("/actuator/health")
                 .exchange()
                 .expectStatus()
@@ -37,10 +26,9 @@ class HealthEndpointTest {
     }
 
     @Test
-    @DisplayName("liveness and readiness probes are exposed for container orchestration")
+    @DisplayName("readiness probe is exposed for container orchestration")
     void probesAreExposed() {
-        webTestClient
-                .get()
+        client.get()
                 .uri("/actuator/health/readiness")
                 .exchange()
                 .expectStatus()
@@ -48,5 +36,13 @@ class HealthEndpointTest {
                 .expectBody()
                 .jsonPath("$.status")
                 .isEqualTo("UP");
+    }
+
+    @Test
+    @DisplayName("everything not explicitly permitted is denied, including unmapped paths")
+    void unmappedPathsAreDenied() {
+        // anyExchange().denyAll() means a future endpoint added without a matching rule is
+        // unreachable rather than accidentally public.
+        client.get().uri("/actuator/env").exchange().expectStatus().isUnauthorized();
     }
 }

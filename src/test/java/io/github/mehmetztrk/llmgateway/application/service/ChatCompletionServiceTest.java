@@ -10,12 +10,19 @@ import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
 import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
 import io.github.mehmetztrk.llmgateway.domain.chat.FinishReason;
 import io.github.mehmetztrk.llmgateway.domain.chat.TokenUsage;
+import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
+import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
+import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
+import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
+import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
+import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
@@ -30,6 +37,13 @@ import reactor.test.StepVerifier;
 class ChatCompletionServiceTest {
 
     private static final ProviderId MOCK = ProviderId.of("stub");
+
+    /** A caller allowed to use every model, so these tests isolate routing from policy. */
+    private static final AuthenticatedCaller CALLER = new AuthenticatedCaller(
+            new Tenant(
+                    TenantId.random(), "test-tenant", true, ModelAllowList.ANY, Instant.parse("2026-01-01T00:00:00Z")),
+            UUID.randomUUID(),
+            ApiKeyRole.TENANT);
 
     /** A minimal hand-rolled stub. why not Mockito: this is shorter, and it compiles. */
     private record StubProvider(ProviderId id, Set<String> supportedModels, Mono<Completion> response)
@@ -79,7 +93,8 @@ class ChatCompletionServiceTest {
         LlmProvider other = new StubProvider(ProviderId.of("other"), Set.of("other-model"), Mono.empty());
         LlmProvider target = new StubProvider(MOCK, Set.of("stub-model"), Mono.just(completion()));
 
-        StepVerifier.create(serviceWith(other, target).complete(ChatRequest.of("stub-model", ChatMessage.user("hi"))))
+        StepVerifier.create(serviceWith(other, target)
+                        .complete(CALLER, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
                 .assertNext(result -> assertThat(result.servedBy()).isEqualTo(MOCK))
                 .verifyComplete();
     }
@@ -93,7 +108,7 @@ class ChatCompletionServiceTest {
         ChatCompletionService service =
                 serviceWith(new StubProvider(MOCK, Set.of("stub-model"), Mono.just(completion())));
 
-        StepVerifier.create(service.complete(ChatRequest.of("nope", ChatMessage.user("hi"))))
+        StepVerifier.create(service.complete(CALLER, ChatRequest.of("nope", ChatMessage.user("hi"))))
                 .expectError(ModelNotFound.class)
                 .verify();
     }
@@ -104,7 +119,7 @@ class ChatCompletionServiceTest {
         LlmProvider broken =
                 new StubProvider(MOCK, Set.of("stub-model"), Mono.error(new IllegalStateException("kaboom")));
 
-        StepVerifier.create(serviceWith(broken).complete(ChatRequest.of("stub-model", ChatMessage.user("hi"))))
+        StepVerifier.create(serviceWith(broken).complete(CALLER, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
                 .expectErrorSatisfies(error -> {
                     assertThat(error).isInstanceOf(ProviderCallFailed.class);
                     assertThat(error.getCause()).isInstanceOf(IllegalStateException.class);
@@ -118,8 +133,54 @@ class ChatCompletionServiceTest {
         ProviderCallFailed original = new ProviderCallFailed(MOCK, "upstream down");
         LlmProvider broken = new StubProvider(MOCK, Set.of("stub-model"), Mono.error(original));
 
-        StepVerifier.create(serviceWith(broken).complete(ChatRequest.of("stub-model", ChatMessage.user("hi"))))
+        StepVerifier.create(serviceWith(broken).complete(CALLER, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
                 .expectErrorSatisfies(error -> assertThat(error).isSameAs(original))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("the tenant policy is checked before any provider is contacted")
+    void enforcesTenantPolicyBeforeRouting() {
+        // Ordering matters: a model a tenant may not use must cost zero upstream calls, or a
+        // rejected request would still consume provider capacity and, later, quota.
+        AuthenticatedCaller restricted = new AuthenticatedCaller(
+                new Tenant(
+                        TenantId.random(),
+                        "restricted",
+                        true,
+                        ModelAllowList.of("something-else"),
+                        Instant.parse("2026-01-01T00:00:00Z")),
+                UUID.randomUUID(),
+                ApiKeyRole.TENANT);
+
+        LlmProvider provider = new StubProvider(
+                MOCK, Set.of("stub-model"), Mono.error(new AssertionError("provider must not be called")));
+
+        StepVerifier.create(serviceWith(provider)
+                        .complete(restricted, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
+                .expectError(ModelNotAllowed.class)
+                .verify();
+    }
+
+    @Test
+    @DisplayName("the tenant policy is enforced on the streaming path too")
+    void enforcesTenantPolicyWhenStreaming() {
+        // Easy to implement on one path and forget on the other, so it is asserted on both.
+        AuthenticatedCaller restricted = new AuthenticatedCaller(
+                new Tenant(
+                        TenantId.random(),
+                        "restricted",
+                        true,
+                        ModelAllowList.NONE,
+                        Instant.parse("2026-01-01T00:00:00Z")),
+                UUID.randomUUID(),
+                ApiKeyRole.TENANT);
+
+        LlmProvider provider = new StubProvider(MOCK, Set.of("stub-model"), Mono.just(completion()));
+
+        StepVerifier.create(
+                        serviceWith(provider).stream(restricted, ChatRequest.of("stub-model", ChatMessage.user("hi"))))
+                .expectError(ModelNotAllowed.class)
                 .verify();
     }
 

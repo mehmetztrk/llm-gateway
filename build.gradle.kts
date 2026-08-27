@@ -37,6 +37,16 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-security")
+
+    // why plain JDBC and not R2DBC in a reactive app: see ADR-0006. Short version — Flyway is
+    // blocking anyway, and the DB is kept off the request hot path by a Caffeine cache, so the
+    // simpler and better-supported stack wins.
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+    runtimeOnly("org.postgresql:postgresql")
 
     // Generates META-INF/spring-configuration-metadata.json so IDEs autocomplete
     // our `gateway.*` properties and flag typos in application.yml.
@@ -61,13 +71,41 @@ testing {
             useJUnitJupiter()
         }
 
+        // why BlockHound gets its own source set and JVM: BlockHound.install() instruments the
+        // whole JVM permanently, and a Spring context start-up trips it on legitimately blocking
+        // framework code. Installed inside the shared `test` JVM it would either fail unrelated
+        // tests or need such a broad allow-list that it stopped detecting anything. Its own task
+        // means the instrumentation is scoped to the code it is meant to police.
+        register<JvmTestSuite>("blockHoundTest") {
+            useJUnitJupiter()
+            dependencies {
+                implementation(project())
+                implementation("org.springframework.boot:spring-boot-starter-test")
+                implementation("io.projectreactor:reactor-test")
+                implementation(libs.blockhound)
+            }
+            targets {
+                all {
+                    testTask.configure {
+                        // BlockHound rewrites JDK methods; without this the JVM refuses the
+                        // retransformation on Java 13+.
+                        jvmArgs("-XX:+AllowRedefinitionToAddDeleteMethods")
+                    }
+                }
+            }
+        }
+
         register<JvmTestSuite>("integrationTest") {
             useJUnitJupiter()
             dependencies {
                 implementation(project())
                 implementation(testFixtures(project()))
                 implementation("org.springframework.boot:spring-boot-starter-test")
+                implementation("org.springframework.boot:spring-boot-testcontainers")
+                implementation("org.springframework.security:spring-security-test")
                 implementation("io.projectreactor:reactor-test")
+                implementation("org.testcontainers:junit-jupiter")
+                implementation("org.testcontainers:postgresql")
             }
             targets {
                 all {
@@ -84,7 +122,7 @@ configurations["integrationTestImplementation"].extendsFrom(configurations.imple
 configurations["integrationTestRuntimeOnly"].extendsFrom(configurations.runtimeOnly.get())
 
 tasks.named("check") {
-    dependsOn(testing.suites.named("integrationTest"))
+    dependsOn(testing.suites.named("integrationTest"), testing.suites.named("blockHoundTest"))
 }
 
 tasks.withType<Test>().configureEach {
