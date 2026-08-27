@@ -1,6 +1,8 @@
 package io.github.mehmetztrk.llmgateway.adapter.out.persistence;
 
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
@@ -31,6 +33,13 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class JdbcTenantRepository implements TenantRepository {
 
+    private static final String TENANT_COLUMNS = """
+            select id, name, active, created_at,
+                   requests_per_minute, tokens_per_minute,
+                   monthly_token_budget, quota_soft_threshold
+              from tenants
+            """;
+
     private final JdbcClient jdbc;
 
     public JdbcTenantRepository(JdbcClient jdbc) {
@@ -41,7 +50,19 @@ public class JdbcTenantRepository implements TenantRepository {
     public Optional<AuthenticatedCaller> findCallerByKeyHash(String keyHash) {
         // One round trip for the whole authentication decision: key, tenant and allow-list.
         // Splitting it into three queries would triple the latency of every cache miss.
-        record Row(UUID keyId, String role, UUID tenantId, String tenantName, Instant createdAt, String model) {}
+        record Row(
+                UUID keyId,
+                String role,
+                UUID tenantId,
+                String tenantName,
+                Instant createdAt,
+                String model,
+                int tenantRpm,
+                long tenantTpm,
+                Long monthlyBudget,
+                double softThreshold,
+                Integer keyRpm,
+                Long keyTpm) {}
 
         List<Row> rows = jdbc.sql("""
                         select k.id            as key_id,
@@ -49,7 +70,13 @@ public class JdbcTenantRepository implements TenantRepository {
                                t.id            as tenant_id,
                                t.name          as tenant_name,
                                t.created_at    as created_at,
-                               m.model         as model
+                               m.model         as model,
+                               t.requests_per_minute  as tenant_rpm,
+                               t.tokens_per_minute    as tenant_tpm,
+                               t.monthly_token_budget as monthly_budget,
+                               t.quota_soft_threshold as soft_threshold,
+                               k.requests_per_minute  as key_rpm,
+                               k.tokens_per_minute    as key_tpm
                           from api_keys k
                           join tenants t on t.id = k.tenant_id
                           left join tenant_models m on m.tenant_id = t.id
@@ -64,7 +91,13 @@ public class JdbcTenantRepository implements TenantRepository {
                         rs.getObject("tenant_id", UUID.class),
                         rs.getString("tenant_name"),
                         rs.getTimestamp("created_at").toInstant(),
-                        rs.getString("model")))
+                        rs.getString("model"),
+                        rs.getInt("tenant_rpm"),
+                        rs.getLong("tenant_tpm"),
+                        (Long) rs.getObject("monthly_budget"),
+                        rs.getDouble("soft_threshold"),
+                        (Integer) rs.getObject("key_rpm"),
+                        (Long) rs.getObject("key_tpm")))
                 .list();
 
         if (rows.isEmpty()) {
@@ -79,14 +112,28 @@ public class JdbcTenantRepository implements TenantRepository {
             }
         }
 
+        RateLimitPolicy tenantLimits = new RateLimitPolicy(first.tenantRpm(), first.tenantTpm());
         Tenant tenant = new Tenant(
-                TenantId.of(first.tenantId()), first.tenantName(), true, new ModelAllowList(models), first.createdAt());
-        return Optional.of(new AuthenticatedCaller(tenant, first.keyId(), ApiKeyRole.valueOf(first.role())));
+                TenantId.of(first.tenantId()),
+                first.tenantName(),
+                true,
+                new ModelAllowList(models),
+                tenantLimits,
+                new QuotaPolicy(first.monthlyBudget(), first.softThreshold()),
+                first.createdAt());
+
+        // A null override means "inherit", not "unlimited": a key without an explicit limit must
+        // not become the way around its tenant's.
+        RateLimitPolicy keyLimits = new RateLimitPolicy(
+                first.keyRpm() == null ? tenantLimits.requestsPerMinute() : first.keyRpm(),
+                first.keyTpm() == null ? tenantLimits.tokensPerMinute() : first.keyTpm());
+
+        return Optional.of(new AuthenticatedCaller(tenant, first.keyId(), ApiKeyRole.valueOf(first.role()), keyLimits));
     }
 
     @Override
     public Optional<Tenant> findTenantById(TenantId id) {
-        return jdbc.sql("select id, name, active, created_at from tenants where id = :id")
+        return jdbc.sql(TENANT_COLUMNS + " where id = :id")
                 .param("id", id.value())
                 .query(this::mapTenant)
                 .optional()
@@ -95,7 +142,7 @@ public class JdbcTenantRepository implements TenantRepository {
 
     @Override
     public Optional<Tenant> findTenantByName(String name) {
-        return jdbc.sql("select id, name, active, created_at from tenants where name = :name")
+        return jdbc.sql(TENANT_COLUMNS + " where name = :name")
                 .param("name", name)
                 .query(this::mapTenant)
                 .optional()
@@ -104,11 +151,7 @@ public class JdbcTenantRepository implements TenantRepository {
 
     @Override
     public List<Tenant> findAllTenants() {
-        return jdbc
-                .sql("select id, name, active, created_at from tenants order by created_at")
-                .query(this::mapTenant)
-                .list()
-                .stream()
+        return jdbc.sql(TENANT_COLUMNS + " order by created_at").query(this::mapTenant).list().stream()
                 .map(this::withAllowedModels)
                 .toList();
     }
@@ -132,6 +175,24 @@ public class JdbcTenantRepository implements TenantRepository {
                 .param("id", tenantId.value())
                 .update();
         insertModels(tenantId, allowedModels);
+    }
+
+    @Override
+    public void updateLimits(TenantId tenantId, RateLimitPolicy rateLimits, QuotaPolicy quota) {
+        jdbc.sql("""
+                        update tenants
+                           set requests_per_minute  = :rpm,
+                               tokens_per_minute    = :tpm,
+                               monthly_token_budget = :budget,
+                               quota_soft_threshold = :threshold
+                         where id = :id
+                        """)
+                .param("rpm", rateLimits.requestsPerMinute())
+                .param("tpm", rateLimits.tokensPerMinute())
+                .param("budget", quota.monthlyTokenBudget())
+                .param("threshold", quota.softThresholdFraction())
+                .param("id", tenantId.value())
+                .update();
     }
 
     @Override
@@ -201,6 +262,8 @@ public class JdbcTenantRepository implements TenantRepository {
                 rs.getString("name"),
                 rs.getBoolean("active"),
                 ModelAllowList.NONE,
+                new RateLimitPolicy(rs.getInt("requests_per_minute"), rs.getLong("tokens_per_minute")),
+                new QuotaPolicy((Long) rs.getObject("monthly_token_budget"), rs.getDouble("quota_soft_threshold")),
                 rs.getTimestamp("created_at").toInstant());
     }
 
@@ -214,6 +277,8 @@ public class JdbcTenantRepository implements TenantRepository {
                 tenant.name(),
                 tenant.active(),
                 new ModelAllowList(Set.copyOf(models)),
+                tenant.rateLimits(),
+                tenant.quota(),
                 tenant.createdAt());
     }
 }

@@ -1,5 +1,7 @@
 package io.github.mehmetztrk.llmgateway.application.port.in;
 
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
@@ -24,6 +26,8 @@ public interface AdminUseCase {
     Tenant getTenant(TenantId id);
 
     void setAllowedModels(TenantId tenantId, ModelAllowList allowedModels);
+
+    void setLimits(TenantId tenantId, RateLimitPolicy rateLimits, QuotaPolicy quota);
 
     /**
      * Issue a key.

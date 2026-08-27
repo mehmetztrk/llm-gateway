@@ -3,6 +3,8 @@ package io.github.mehmetztrk.llmgateway.adapter.out.persistence;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
@@ -64,6 +66,14 @@ public class CachingTenantRepository implements TenantRepository {
         delegate.replaceAllowedModels(tenantId, allowedModels);
         // Cached callers carry an embedded allow-list, so a policy change must not wait for the
         // TTL — tightening a policy has to take effect at once to be worth anything.
+        callersByKeyHash.invalidateAll();
+    }
+
+    @Override
+    public void updateLimits(TenantId tenantId, RateLimitPolicy rateLimits, QuotaPolicy quota) {
+        delegate.updateLimits(tenantId, rateLimits, quota);
+        // Cached callers carry an embedded copy of their tenant's limits, so a tightened limit that
+        // waited for the TTL would be useless during the incident it was tightened for.
         callersByKeyHash.invalidateAll();
     }
 

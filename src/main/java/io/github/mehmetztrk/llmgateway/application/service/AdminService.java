@@ -5,6 +5,8 @@ import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyFactory;
 import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyHasher;
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
 import io.github.mehmetztrk.llmgateway.domain.error.TenantNotFound;
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
@@ -44,6 +46,12 @@ public class AdminService implements AdminUseCase {
     public void setAllowedModels(TenantId tenantId, ModelAllowList allowedModels) {
         getTenant(tenantId);
         tenants.replaceAllowedModels(tenantId, allowedModels);
+    }
+
+    @Override
+    public void setLimits(TenantId tenantId, RateLimitPolicy rateLimits, QuotaPolicy quota) {
+        getTenant(tenantId);
+        tenants.updateLimits(tenantId, rateLimits, quota);
     }
 
     @Override

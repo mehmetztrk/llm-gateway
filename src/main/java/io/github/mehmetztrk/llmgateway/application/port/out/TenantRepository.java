@@ -1,5 +1,7 @@
 package io.github.mehmetztrk.llmgateway.application.port.out;
 
+import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
+import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKey;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
@@ -37,6 +39,8 @@ public interface TenantRepository {
     Tenant createTenant(String name, ModelAllowList allowedModels);
 
     void replaceAllowedModels(TenantId tenantId, ModelAllowList allowedModels);
+
+    void updateLimits(TenantId tenantId, RateLimitPolicy rateLimits, QuotaPolicy quota);
 
     /**
      * Store a new key. The plaintext never reaches this method — only its digest, so no
