@@ -1,0 +1,29 @@
+# Minimal collector: receive OTLP from the gateway, hand traces to Tempo.
+#
+# why a collector at all rather than exporting straight to Tempo: the application then knows one
+# endpoint instead of one per backend, and swapping Tempo for anything else is a change to this
+# file rather than to the gateway's configuration.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo]

@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: llm-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # host.docker.internal so the same file works whether the gateway runs in compose or from
+      # the IDE — the common case during development is the latter.
+      - targets: ["host.docker.internal:8080"]

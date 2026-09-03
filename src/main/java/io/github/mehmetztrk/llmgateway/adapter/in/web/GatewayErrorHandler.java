@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
@@ -117,6 +118,20 @@ class GatewayErrorHandler {
      */
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponseDto> handleUnexpected(Exception exception) {
+        // Anything Spring already assigned a status to keeps it. Without this, a plain 404 for an
+        // unmapped path arrives here and leaves as a 500 — which is both wrong and alarming, since
+        // it turns "you asked for something that does not exist" into "the gateway is broken".
+        // Found by a metrics test that expected a 200 and got a 500 that was really a 404.
+        if (exception instanceof ErrorResponse errorResponse) {
+            HttpStatus status = HttpStatus.valueOf(errorResponse.getStatusCode().value());
+            log.debug("{} for {}", status, exception.getMessage());
+            return ResponseEntity.status(status)
+                    .body(ErrorResponseDto.of(
+                            status.is4xxClientError() ? status.getReasonPhrase() : "Internal error.",
+                            status.is4xxClientError() ? "invalid_request_error" : "api_error",
+                            status.is4xxClientError() ? "not_found" : "internal_error"));
+        }
+
         log.error("unhandled exception", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponseDto.of("Internal error.", "api_error", "internal_error"));

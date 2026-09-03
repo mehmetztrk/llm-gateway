@@ -69,6 +69,10 @@ public class SecurityConfig {
                         // calls it makes are authenticated like any other.
                         .pathMatchers("/", "/index.html", "/favicon.ico")
                         .permitAll()
+                        // Metrics expose traffic shape, model names and error rates. Public by
+                        // default in most Spring setups; not here.
+                        .pathMatchers("/actuator/prometheus", "/actuator/metrics/**")
+                        .hasAnyRole("TENANT", "ADMIN")
                         .pathMatchers("/admin/**")
                         .hasRole("ADMIN")
                         .pathMatchers("/v1/**")

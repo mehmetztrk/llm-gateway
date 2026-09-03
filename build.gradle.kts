@@ -54,6 +54,12 @@ dependencies {
     // usable inside a Mono/Flux chain rather than only via annotations on blocking methods.
     implementation(libs.resilience4j.spring.boot3)
     implementation(libs.resilience4j.reactor)
+
+    // Metrics and tracing. The OTel bridge means the same span data can go to Tempo locally and to
+    // anything OTLP-speaking later, without the application knowing which.
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
     runtimeOnly("org.postgresql:postgresql")
 
     // Generates META-INF/spring-configuration-metadata.json so IDEs autocomplete

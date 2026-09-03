@@ -125,8 +125,73 @@ services:
       retries: 12
       start_period: 30s
 
+  # --- observability, behind a profile ---------------------------------------------------------
+  # why a profile: the everyday loop does not need four more containers, and a developer who has
+  # not asked for Grafana should not be paying 700 MB of RAM for it. `--profile observability`
+  # turns the whole stack on at once.
+
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    container_name: llmgw-otel-collector
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "4318:4318"
+      - "4317:4317"
+    depends_on:
+      - tempo
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.6.1
+    container_name: llmgw-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.1.0
+    container_name: llmgw-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=6h
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Lets Prometheus scrape a gateway running outside compose, which is the common case while
+      # developing.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.4.0
+    container_name: llmgw-grafana
+    environment:
+      # Anonymous admin: this stack is a local demo with no data worth protecting, and a login
+      # prompt between an operator and a dashboard is friction with no security value here.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+
 volumes:
   postgres-data:
+  tempo-data:
   redis-data:
   ollama-primary-models:
   ollama-secondary-models:

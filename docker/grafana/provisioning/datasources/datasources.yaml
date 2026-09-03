@@ -1,0 +1,13 @@
+# Provisioned so the stack is useful the moment it starts. A dashboard that requires ten minutes of
+# clicking before it shows anything is a dashboard nobody looks at.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200

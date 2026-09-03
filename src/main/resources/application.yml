@@ -54,7 +54,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       show-details: when-authorized
@@ -65,6 +65,15 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+  # Traces go to the OTel collector in compose, which fans out to Tempo. Sampling is 100% here
+  # because this is a demo environment; a production deployment would sample and say so.
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
   info:
     build:
       enabled: true

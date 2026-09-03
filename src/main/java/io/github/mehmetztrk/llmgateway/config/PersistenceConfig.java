@@ -67,8 +67,16 @@ public class PersistenceConfig {
     }
 
     @Bean
-    public UsageRecorder usageRecorder(UsageLedger ledger, PricingProperties pricing, java.time.Clock clock) {
-        return new UsageRecorder(ledger, pricing.toPriceTable(), clock);
+    public UsageRecorder usageRecorder(
+            UsageLedger ledger,
+            PricingProperties pricing,
+            java.time.Clock clock,
+            io.github.mehmetztrk.llmgateway.adapter.out.telemetry.GatewayMetrics metrics) {
+        return new UsageRecorder(ledger, pricing.toPriceTable(), clock, (model, provider, cache, latency, usage) -> {
+            metrics.recordRequest(model, provider, cache, latency);
+            metrics.recordTokens(model, usage);
+            metrics.recordCache(cache);
+        });
     }
 
     @Bean
