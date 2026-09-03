@@ -12,12 +12,12 @@ import io.github.mehmetztrk.llmgateway.domain.chat.Role;
 import io.github.mehmetztrk.llmgateway.domain.chat.TokenUsage;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
+import io.github.mehmetztrk.llmgateway.domain.support.Ids;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
@@ -113,7 +113,7 @@ public class OllamaProvider implements LlmProvider {
         return Flux.defer(() -> {
                     // Per-subscription bookkeeping, so a retry starts from a clean slate.
                     AtomicBoolean sawTerminal = new AtomicBoolean(false);
-                    AtomicReference<String> completionId = new AtomicReference<>("chatcmpl-" + UUID.randomUUID());
+                    AtomicReference<String> completionId = new AtomicReference<>("chatcmpl-" + Ids.fast());
                     AtomicReference<String> servedModel = new AtomicReference<>(request.model());
 
                     Flux<CompletionChunk> body$ = webClient
@@ -252,7 +252,7 @@ public class OllamaProvider implements LlmProvider {
         }
 
         return new Completion(
-                response.id() == null ? "chatcmpl-" + UUID.randomUUID() : response.id(),
+                response.id() == null ? "chatcmpl-" + Ids.fast() : response.id(),
                 response.model() == null ? request.model() : response.model(),
                 id,
                 new ChatMessage(

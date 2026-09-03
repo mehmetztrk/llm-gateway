@@ -142,6 +142,24 @@ repeats without ever embedding, and the semantic layer can be switched off per d
 (`gateway.cache.semantic-enabled`). A third — embedding asynchronously on the store path, so only
 lookups pay — is not implemented and is the obvious next optimisation.
 
+## A blocking call BlockHound caught that a week of local runs did not
+
+The build went red on CI with `Blocking call! java.io.FileInputStream#readBytes`, from
+`UUID.randomUUID()` inside the usage ledger and the Ollama streaming adapter.
+
+`UUID.randomUUID()` draws from `SecureRandom`, which on Linux reads `/dev/random` through a
+`FileInputStream` — a blocking file read on a reactive thread. On a warm developer machine the
+entropy pool absorbs it and nothing is visible. On a fresh CI runner it is not absorbed.
+
+A ledger row id and a completion id need to be **unique**, not **unguessable**. Both now come from
+`Ids.fast()`, backed by `ThreadLocalRandom`, still shaped as a valid UUIDv4. API keys still use
+`SecureRandom` and always will — that call happens on the admin path, on a blocking scheduler,
+where blocking is expected and paid for.
+
+This is the entire argument for keeping BlockHound in the build rather than trusting review: the
+call looked completely ordinary, passed every local run, and would have degraded throughput in
+production in a way no functional test would have shown.
+
 ## Failover — `FailoverChaosIT`
 
 Not a k6 run; measured inside the integration suite, with the primary provider configured to fail

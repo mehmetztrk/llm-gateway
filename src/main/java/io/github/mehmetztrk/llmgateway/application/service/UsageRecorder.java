@@ -3,13 +3,13 @@ package io.github.mehmetztrk.llmgateway.application.service;
 import io.github.mehmetztrk.llmgateway.application.port.out.UsageLedger;
 import io.github.mehmetztrk.llmgateway.domain.cache.CacheStatus;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
+import io.github.mehmetztrk.llmgateway.domain.support.Ids;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import io.github.mehmetztrk.llmgateway.domain.usage.Money;
 import io.github.mehmetztrk.llmgateway.domain.usage.PriceTable;
 import io.github.mehmetztrk.llmgateway.domain.usage.UsageRecord;
 import java.time.Clock;
 import java.time.Duration;
-import java.util.UUID;
 
 /**
  * Turns a finished request into a ledger row.
@@ -70,7 +70,7 @@ public class UsageRecorder {
         metrics.record(completion.model(), completion.servedBy(), cacheStatus, latency, completion.usage());
 
         ledger.record(new UsageRecord(
-                UUID.randomUUID(),
+                Ids.fast(),
                 caller.tenantId(),
                 caller.apiKeyId(),
                 completion.model(),
