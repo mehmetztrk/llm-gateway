@@ -31,15 +31,18 @@ a reviewer would reasonably ask "why did you do it that way?".
 - The ADR log is deliberately a record of decisions, not documentation of how the system works —
   that lives in the README and the code.
 
-## Planned ADRs
+## The log
 
-| # | Subject | Lands with |
-|---|---|---|
-| 0001 | Java 21, Spring Boot 3.5, single Gradle module | M0 |
-| 0002 | WebFlux over MVC + virtual threads for the proxy path | M2 |
-| 0003 | Rate-limit algorithm: token bucket over sliding window | M4 |
-| 0004 | Fail-open on cache, fail-closed on rate limit | M4 |
-| 0005 | Cache strategy: exact before semantic, tenant-scoped keys | M6 |
-| 0006 | Blocking JDBC inside a reactive application | M3 |
-| 0007 | pgvector as the semantic-cache vector store | M6 |
-| 0008 | Semantic cache similarity threshold | M6 |
+| # | Subject |
+|---|---|
+| [0000](0000-use-architecture-decision-records.md) | Use architecture decision records |
+| [0001](0001-java-21-spring-boot-3-5-single-module.md) | Java 21, Spring Boot 3.5, single Gradle module |
+| [0002](0002-webflux-over-mvc-with-virtual-threads.md) | WebFlux over MVC with virtual threads |
+| [0003](0003-token-bucket-rate-limiting.md) | Token bucket, not fixed or sliding window |
+| [0004](0004-fail-closed-limits-fail-open-cache.md) | Fail closed on limits, fail open on cache |
+| [0005](0005-exact-before-semantic-caching.md) | Exact cache first, semantic second |
+| [0006](0006-blocking-jdbc-in-a-reactive-application.md) | Blocking JDBC inside a reactive application |
+| [0007](0007-pgvector-for-the-semantic-cache.md) | pgvector for the semantic cache |
+| [0008](0008-semantic-cache-threshold.md) | Semantic cache similarity threshold |
+| [0009](0009-hmac-not-argon2-for-api-keys.md) | HMAC-SHA256, not Argon2id, for API keys |
+| [0010](0010-alias-based-routing-and-failover.md) | Alias-based routing, and where failover stops |

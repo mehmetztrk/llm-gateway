@@ -498,6 +498,11 @@
   }
 
   async function send() {
+    // The button is disabled while a request is in flight, but a keyboard shortcut or a
+    // programmatic click can still get through. A second run would reset the stats the first is
+    // still writing and leave the two fighting over the same DOM.
+    if (controller) return;
+
     const stream = $('stream').checked;
     const started = performance.now();
     let firstByteAt = null, frames = 0, text = '';

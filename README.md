@@ -6,7 +6,7 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M9 of 10 — measured.** `/v1/chat/completions` works streamed and
+> **Status: complete — M0 through M10.** `/v1/chat/completions` works streamed and
 > non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
 > Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
 > resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Model
@@ -263,7 +263,7 @@ should never be enabled against real traffic.
 | M7 | Usage ledger, cost accounting, usage API | ✅ done |
 | M8 | OTel GenAI spans, metrics, Grafana dashboard | ✅ done |
 | M9 | k6 load tests, BENCHMARKS.md | ✅ done |
-| M10 | Full README, ADR set, demo script, deploy notes | ⬜ |
+| M10 | Full README, ADR set, demo script, deploy notes | ✅ done |
 
 ## Observability
 
@@ -297,10 +297,37 @@ Two targets were missed, both by single-digit milliseconds at high concurrency, 
 same cause — seven sequential Redis round trips per request — with the fix described rather than
 claimed.
 
+## Try it
+
+```bash
+./scripts/demo.sh
+```
+
+A guided tour: SDK compatibility, the 401 envelope, a cache hit, rate-limit headers, provider
+health, then it **kills the primary Ollama container** and shows the alias still answering. The
+integration suite simulates that failure instead of causing it — a test cannot afford to depend on
+Docker lifecycle timing — but a demo with a human watching can.
+
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) — engineering standards and conventions this repo is held to
-- [docs/adr/](docs/adr/) — architecture decision records
+- [BENCHMARKS.md](BENCHMARKS.md) — measured numbers, including the two targets that were missed
+- [docs/adr/](docs/adr/) — eleven architecture decision records
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — what would have to change before this ran in production
+- [CLAUDE.md](CLAUDE.md) — engineering standards this repo is held to
+
+## Known limitations
+
+Stated plainly, because a portfolio project that claims to be finished is less credible than one
+that says where it stops.
+
+- **Gateway overhead exceeds its p99 target above ~20 concurrent clients.** Cause identified
+  (seven sequential Redis round trips), fix described, not implemented.
+- **The semantic cache costs an embedding round trip per request**, which is a large win against
+  slow hosted models and pure overhead against fast ones. Measured, and documented in BENCHMARKS.md.
+- **The similarity threshold of 0.95 has not been tuned against real traffic.** It is argued from
+  the shape of the risk, not measured against labelled prompt pairs.
+- **The usage ledger has no retention policy** and grows without bound.
+- **Nothing here has run in production**, and no horizontal-scaling claim has been measured.
 
 ## License
 
