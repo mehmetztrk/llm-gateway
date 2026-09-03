@@ -1,0 +1,35 @@
+# Reference price table, in micro-units of USD per 1000 tokens.
+#
+# READ THIS BEFORE QUOTING ANY NUMBER DERIVED FROM IT.
+#
+# Every model this gateway serves locally is free. These are *reference* prices taken from
+# published rates for comparable hosted models, and the cost they produce is a counterfactual:
+# "what this traffic would have cost at these rates". The measured quantity is tokens; cost is
+# arithmetic over a stated rate.
+#
+# 500 micros = $0.0005 per 1000 tokens.
+gateway:
+  pricing:
+    currency: USD
+    models:
+      # Stand-in rates for a small hosted model of roughly this class.
+      "[qwen2.5:1.5b-instruct]":
+        input-micros-per1k: 150
+        output-micros-per1k: 600
+      "[llama3.2:1b]":
+        input-micros-per1k: 100
+        output-micros-per1k: 400
+      "[chat-default]":
+        input-micros-per1k: 150
+        output-micros-per1k: 600
+      # The mock has no real-world equivalent. Priced so that benchmark output is non-zero and
+      # obviously synthetic rather than accidentally plausible.
+      "[mock-fast]":
+        input-micros-per1k: 100
+        output-micros-per1k: 300
+      "[mock-echo]":
+        input-micros-per1k: 100
+        output-micros-per1k: 300
+      "[mock-ha]":
+        input-micros-per1k: 100
+        output-micros-per1k: 300

@@ -1,3 +1,7 @@
+# Prices live in their own file: they change for different reasons, and by different people,
+# than the rest of this configuration.
+spring.config.import: classpath:pricing.yml
+
 spring:
   application:
     name: llm-gateway

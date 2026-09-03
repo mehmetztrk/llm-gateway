@@ -11,6 +11,7 @@ import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService
 import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
 import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
+import io.github.mehmetztrk.llmgateway.application.service.UsageRecorder;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,8 +39,12 @@ public class ApplicationConfig {
 
     @Bean
     public ChatCompletionUseCase chatCompletionUseCase(
-            RoutingService routing, FailoverExecutor failover, RateLimitService limits, CacheService cache) {
-        return new ChatCompletionService(routing, failover, limits, cache);
+            RoutingService routing,
+            FailoverExecutor failover,
+            RateLimitService limits,
+            CacheService cache,
+            UsageRecorder usage) {
+        return new ChatCompletionService(routing, failover, limits, cache, usage);
     }
 
     @Bean

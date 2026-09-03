@@ -25,6 +25,7 @@ import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
 import io.github.mehmetztrk.llmgateway.health.RecordingHealthRegistry;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryQuotaStore;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryRateLimiter;
+import io.github.mehmetztrk.llmgateway.usage.NoOpUsageRecorder;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,8 @@ class ChatCompletionServiceTest {
 
     private final InMemoryRateLimiter rateLimiter = new InMemoryRateLimiter();
     private final InMemoryQuotaStore quotas = new InMemoryQuotaStore();
+
+    private static final UsageRecorder NO_LEDGER = NoOpUsageRecorder.create();
 
     private static final io.github.mehmetztrk.llmgateway.application.port.out.ResponseCache NO_CACHE =
             new io.github.mehmetztrk.llmgateway.application.port.out.ResponseCache() {
@@ -136,7 +139,8 @@ class ChatCompletionServiceTest {
                 new RateLimitService(rateLimiter, quotas),
                 // Caching off: these tests are about pipeline ordering, and a cache hit would make
                 // "the provider was not called" ambiguous.
-                new CacheService(NO_CACHE, NO_CACHE, false));
+                new CacheService(NO_CACHE, NO_CACHE, false),
+                NO_LEDGER);
     }
 
     private ChatCompletionService workingService() {

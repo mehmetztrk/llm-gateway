@@ -31,13 +31,19 @@ public class ChatCompletionService implements ChatCompletionUseCase {
     private final FailoverExecutor failover;
     private final RateLimitService limits;
     private final CacheService cache;
+    private final UsageRecorder usage;
 
     public ChatCompletionService(
-            RoutingService routing, FailoverExecutor failover, RateLimitService limits, CacheService cache) {
+            RoutingService routing,
+            FailoverExecutor failover,
+            RateLimitService limits,
+            CacheService cache,
+            UsageRecorder usage) {
         this.routing = routing;
         this.failover = failover;
         this.limits = limits;
         this.cache = cache;
+        this.usage = usage;
     }
 
     @Override
@@ -47,26 +53,39 @@ public class ChatCompletionService implements ChatCompletionUseCase {
             List<RouteTarget> targets = routing.resolve(request.model());
             long estimate = estimateTokens(request);
 
+            long startedAt = System.nanoTime();
+
             return limits.admit(caller, estimate)
                     .flatMap(admission -> cache.lookup(caller.tenantId(), request)
-                            .map(hit -> new GatewayResult<>(
-                                    hit.completion(),
-                                    admission.requests(),
-                                    admission.tokens(),
-                                    admission.quota(),
-                                    statusOf(hit)))
+                            .map(hit -> {
+                                usage.record(caller, hit.completion(), statusOf(hit), elapsedSince(startedAt), false);
+                                return new GatewayResult<>(
+                                        hit.completion(),
+                                        admission.requests(),
+                                        admission.tokens(),
+                                        admission.quota(),
+                                        statusOf(hit));
+                            })
                             .switchIfEmpty(Mono.defer(() -> failover.complete(targets, request)
                                     .flatMap(completion -> cache.store(caller.tenantId(), request, completion)
                                             .then(limits.settle(
                                                     caller,
                                                     estimate,
                                                     completion.usage().totalTokens()))
-                                            .map(quota -> new GatewayResult<>(
-                                                    completion,
-                                                    admission.requests(),
-                                                    admission.tokens(),
-                                                    quota,
-                                                    CacheStatus.MISS))))));
+                                            .map(quota -> {
+                                                usage.record(
+                                                        caller,
+                                                        completion,
+                                                        CacheStatus.MISS,
+                                                        elapsedSince(startedAt),
+                                                        false);
+                                                return new GatewayResult<>(
+                                                        completion,
+                                                        admission.requests(),
+                                                        admission.tokens(),
+                                                        quota,
+                                                        CacheStatus.MISS);
+                                            })))));
         });
     }
 
@@ -77,24 +96,40 @@ public class ChatCompletionService implements ChatCompletionUseCase {
             List<RouteTarget> targets = routing.resolve(request.model());
             long estimate = estimateTokens(request);
 
+            long startedAt = System.nanoTime();
+
             return limits.admit(caller, estimate)
                     .flatMap(admission -> cache.lookup(caller.tenantId(), request)
-                            .map(hit -> new GatewayResult<>(
-                                    replay(hit.completion()),
-                                    admission.requests(),
-                                    admission.tokens(),
-                                    admission.quota(),
-                                    statusOf(hit)))
+                            .map(hit -> {
+                                usage.record(caller, hit.completion(), statusOf(hit), elapsedSince(startedAt), true);
+                                return new GatewayResult<>(
+                                        replay(hit.completion()),
+                                        admission.requests(),
+                                        admission.tokens(),
+                                        admission.quota(),
+                                        statusOf(hit));
+                            })
                             .switchIfEmpty(Mono.fromSupplier(() -> {
                                 Flux<CompletionChunk> chunks = failover.stream(targets, request)
                                         // Settlement is attached to the terminal chunk rather than to the
                                         // end of the stream: a stream that fails halfway still consumed
                                         // whatever it produced, and doOnComplete would skip that case.
+                                        // The terminal chunk is where the real token count first
+                                        // exists, so it is where both settlement and the ledger
+                                        // row belong. Hanging them off stream completion instead
+                                        // would skip the case that matters most: a stream that
+                                        // failed partway still consumed what it produced.
                                         .concatMap(chunk -> chunk instanceof CompletionChunk.Done done
                                                 ? limits.settle(
                                                                 caller,
                                                                 estimate,
                                                                 done.usage().totalTokens())
+                                                        .doOnSuccess(ignored -> usage.record(
+                                                                caller,
+                                                                toCompletion(done),
+                                                                CacheStatus.MISS,
+                                                                elapsedSince(startedAt),
+                                                                true))
                                                         .thenReturn(chunk)
                                                 : Mono.just(chunk));
 
@@ -146,6 +181,25 @@ public class ChatCompletionService implements ChatCompletionUseCase {
      */
     private CacheStatus statusOf(CachedCompletion hit) {
         return hit.origin() == CachedCompletion.Origin.EXACT ? CacheStatus.EXACT_HIT : CacheStatus.SEMANTIC_HIT;
+    }
+
+    /**
+     * A terminal chunk carries everything a ledger row needs except the assistant's text, which the
+     * ledger does not store — prompts and completions are never persisted here, by design.
+     */
+    private Completion toCompletion(CompletionChunk.Done done) {
+        return new Completion(
+                done.id(),
+                done.model(),
+                done.servedBy(),
+                io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage.assistant(""),
+                done.usage(),
+                done.finishReason(),
+                done.createdAt());
+    }
+
+    private java.time.Duration elapsedSince(long startedNanos) {
+        return java.time.Duration.ofNanos(System.nanoTime() - startedNanos);
     }
 
     /**

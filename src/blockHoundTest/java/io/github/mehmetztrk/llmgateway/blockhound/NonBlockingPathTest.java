@@ -13,6 +13,7 @@ import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
 import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
+import io.github.mehmetztrk.llmgateway.application.service.UsageRecorder;
 import io.github.mehmetztrk.llmgateway.domain.cache.CachedCompletion;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
@@ -28,6 +29,7 @@ import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
 import io.github.mehmetztrk.llmgateway.health.RecordingHealthRegistry;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryQuotaStore;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryRateLimiter;
+import io.github.mehmetztrk.llmgateway.usage.NoOpUsageRecorder;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -64,6 +66,8 @@ class NonBlockingPathTest {
 
     private static final RateLimitPolicy GENEROUS = new RateLimitPolicy(1_000_000, 1_000_000_000L);
 
+    private static final UsageRecorder NO_LEDGER = NoOpUsageRecorder.create();
+
     private static final ResponseCache NO_CACHE = new ResponseCache() {
         @Override
         public Mono<CachedCompletion> lookup(TenantId tenant, ChatRequest request) {
@@ -93,7 +97,8 @@ class NonBlockingPathTest {
                 routing,
                 new FailoverExecutor(registry, health),
                 new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()),
-                new CacheService(NO_CACHE, NO_CACHE, false));
+                new CacheService(NO_CACHE, NO_CACHE, false),
+                NO_LEDGER);
     }
 
     private AuthenticatedCaller caller() {

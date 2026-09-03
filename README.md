@@ -6,12 +6,14 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M5 of 10 — routed, with health-aware failover.** `/v1/chat/completions` works streamed and
+> **Status: M7 of 10 — caching and cost accounting.** `/v1/chat/completions` works streamed and
 > non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
 > Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
 > resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Model
 > aliases route to an ordered list of providers with circuit breaking and automatic failover.
-> Caching, the usage ledger and tracing are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
+> Responses are cached exactly and semantically, tenant-scoped by construction, and every request
+> lands in an append-only usage ledger with derived cost. Tracing and load-test numbers are not
+> done yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
 > capability is claimed here before it exists and is tested.
 
 ## Demo console
@@ -167,6 +169,41 @@ The honest reading is not "failover takes 7 ms" but "once the probe has demoted 
 its outage is invisible to callers". Reasoning in
 [ADR-0010](docs/adr/0010-alias-based-routing-and-failover.md).
 
+## Caching
+
+Two layers, tried in order. **Exact** (Redis) is one key lookup and unconditionally correct.
+**Semantic** (pgvector) embeds the prompt locally with `nomic-embed-text` and serves a stored answer
+when cosine similarity clears the threshold.
+
+The **tenant is part of the cache key**, not a filter applied afterwards — the difference between
+isolation by construction and isolation as long as nobody forgets a `WHERE` clause. Two tenants
+sending byte-identical prompts get different keys, and `CacheApiIT` proves it.
+
+`x-llmgw-cache: miss | hit-exact | hit-semantic` on every response. Cached answers replay as
+streams, word by word, so a client cannot tell a hit from a miss by the shape of the response.
+
+The threshold defaults to **0.95** and the asymmetry behind that number is the point: too high costs
+a miss, too low means confidently answering a question nobody asked. Reasoning in
+[ADR-0008](docs/adr/0008-semantic-cache-threshold.md); the layer can be switched off entirely.
+
+## Usage and cost
+
+Every request lands in an append-only ledger — no update or delete path exists — written off the
+request path through a bounded queue drained by a virtual thread. A full queue **drops rows and
+counts the drops**, because the alternatives are blocking the request or growing without limit.
+
+```bash
+curl -s localhost:8080/v1/usage -H "Authorization: Bearer $KEY"
+```
+
+Returns request counts, token totals, cache-hit ratio and derived cost. The tenant comes from the
+key; there is no parameter that could ask for someone else's.
+
+**On the cost figure.** Every model served here is free. Prices in `pricing.yml` are *reference*
+rates for comparable hosted models, so cost is a counterfactual: "what this traffic would have cost
+at these rates". **Tokens are measured; cost is arithmetic over a stated rate.** A cache hit is
+recorded at zero cost, which is what makes the saving measurable rather than asserted.
+
 ## Rate limits and quotas
 
 Four token buckets guard every request: requests-per-minute and tokens-per-minute, each enforced
@@ -221,8 +258,8 @@ should never be enabled against real traffic.
 | M3 | Tenants, API keys, Flyway schema | ✅ done |
 | M4 | Rate limiting, quotas, 429 semantics | ✅ done |
 | M5 | Routing, circuit breaker, failover + chaos test | ✅ done |
-| M6 | Exact + semantic cache, tenant isolation | ⬜ |
-| M7 | Usage ledger, cost accounting, usage API | ⬜ |
+| M6 | Exact + semantic cache, tenant isolation | ✅ done |
+| M7 | Usage ledger, cost accounting, usage API | ✅ done |
 | M8 | OTel GenAI spans, metrics, Grafana dashboard | ⬜ |
 | M9 | k6 load tests, BENCHMARKS.md | ⬜ |
 | M10 | Full README, ADR set, demo script, deploy notes | ⬜ |

@@ -1,11 +1,16 @@
 package io.github.mehmetztrk.llmgateway.config;
 
+import io.github.mehmetztrk.llmgateway.adapter.out.persistence.BufferedUsageLedger;
 import io.github.mehmetztrk.llmgateway.adapter.out.persistence.CachingTenantRepository;
 import io.github.mehmetztrk.llmgateway.adapter.out.persistence.JdbcTenantRepository;
 import io.github.mehmetztrk.llmgateway.adapter.out.security.ApiKeyGenerator;
 import io.github.mehmetztrk.llmgateway.adapter.out.security.HmacApiKeyHasher;
+import io.github.mehmetztrk.llmgateway.application.port.in.UsageQueryUseCase;
 import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyHasher;
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
+import io.github.mehmetztrk.llmgateway.application.port.out.UsageLedger;
+import io.github.mehmetztrk.llmgateway.application.service.UsageQueryService;
+import io.github.mehmetztrk.llmgateway.application.service.UsageRecorder;
 import java.util.concurrent.Executors;
 import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
@@ -46,6 +51,24 @@ public class PersistenceConfig {
     public TenantRepository tenantRepository(JdbcClient jdbcClient, SecurityProperties properties) {
         return new CachingTenantRepository(
                 new JdbcTenantRepository(jdbcClient), properties.cacheTtl(), properties.cacheMaxSize());
+    }
+
+    @Bean
+    public UsageLedger usageLedger(JdbcClient jdbcClient) {
+        // Capacity is generous relative to the flush interval: at any realistic request rate the
+        // drainer empties it long before it fills, and the bound exists for the pathological case
+        // where the database is slow, not the normal one.
+        return new BufferedUsageLedger(jdbcClient, 10_000, 200, java.time.Duration.ofMillis(200));
+    }
+
+    @Bean
+    public UsageQueryUseCase usageQueryUseCase(UsageLedger ledger) {
+        return new UsageQueryService(ledger);
+    }
+
+    @Bean
+    public UsageRecorder usageRecorder(UsageLedger ledger, PricingProperties pricing, java.time.Clock clock) {
+        return new UsageRecorder(ledger, pricing.toPriceTable(), clock);
     }
 
     @Bean
