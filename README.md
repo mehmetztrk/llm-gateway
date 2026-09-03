@@ -6,14 +6,15 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M7 of 10 — caching and cost accounting.** `/v1/chat/completions` works streamed and
+> **Status: M9 of 10 — measured.** `/v1/chat/completions` works streamed and
 > non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
 > Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
 > resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Model
 > aliases route to an ordered list of providers with circuit breaking and automatic failover.
 > Responses are cached exactly and semantically, tenant-scoped by construction, and every request
-> lands in an append-only usage ledger with derived cost. Tracing and load-test numbers are not
-> done yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
+> lands in an append-only usage ledger with derived cost, OTel GenAI spans and Prometheus metrics.
+> Load-test numbers are measured and in [BENCHMARKS.md](BENCHMARKS.md), including the two targets
+> that were missed. This notice is updated as milestones land, and no
 > capability is claimed here before it exists and is tested.
 
 ## Demo console
@@ -260,9 +261,41 @@ should never be enabled against real traffic.
 | M5 | Routing, circuit breaker, failover + chaos test | ✅ done |
 | M6 | Exact + semantic cache, tenant isolation | ✅ done |
 | M7 | Usage ledger, cost accounting, usage API | ✅ done |
-| M8 | OTel GenAI spans, metrics, Grafana dashboard | ⬜ |
-| M9 | k6 load tests, BENCHMARKS.md | ⬜ |
+| M8 | OTel GenAI spans, metrics, Grafana dashboard | ✅ done |
+| M9 | k6 load tests, BENCHMARKS.md | ✅ done |
 | M10 | Full README, ADR set, demo script, deploy notes | ⬜ |
+
+## Observability
+
+```bash
+docker compose --profile observability up -d
+```
+
+Grafana on <http://localhost:3000> with a provisioned dashboard, Prometheus on `:9090`, Tempo
+behind an OTel collector. Spans follow the [OTel GenAI semantic
+conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) — `gen_ai.request.model`,
+`gen_ai.usage.input_tokens` and friends — so they are queryable by tooling that was never told
+about this project.
+
+**Tenant id is deliberately not a metric label.** Unbounded cardinality creates one time series per
+tenant and takes the monitoring system down before it tells anyone anything; per-tenant numbers live
+in the usage ledger, which is built for that query. A test asserts the label's absence, and another
+asserts the meter names the committed dashboard depends on.
+
+## Measured performance
+
+Real numbers from real runs, including the misses — see [BENCHMARKS.md](BENCHMARKS.md).
+
+| Target | Result | |
+|---|---|---|
+| Gateway overhead p99 < 15 ms | 7.4 ms @ 10 VUs, 13.5 ms @ 20 VUs, 31.9 ms @ 50 VUs | ✅ to 20 VUs |
+| Streaming TTFB p99 < 10 ms | 11.65 ms (p50 5.25 ms) | ❌ narrowly |
+| Failover < 2 s | median 7 ms | ✅ |
+| Cache hit ratio | 99.85 % on a replay workload, 3.07 M tokens saved | ✅ |
+
+Two targets were missed, both by single-digit milliseconds at high concurrency, both traced to the
+same cause — seven sequential Redis round trips per request — with the fix described rather than
+claimed.
 
 ## Documentation
 
