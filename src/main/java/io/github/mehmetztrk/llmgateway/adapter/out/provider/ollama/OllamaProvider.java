@@ -52,9 +52,21 @@ public class OllamaProvider implements LlmProvider {
     private final Set<String> models;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final Duration healthTimeout;
 
     public OllamaProvider(
             ProviderId id, WebClient webClient, Set<String> models, Duration timeout, ObjectMapper objectMapper) {
+        this(id, webClient, models, timeout, objectMapper, Duration.ofSeconds(2));
+    }
+
+    public OllamaProvider(
+            ProviderId id,
+            WebClient webClient,
+            Set<String> models,
+            Duration timeout,
+            ObjectMapper objectMapper,
+            Duration healthTimeout) {
+        this.healthTimeout = healthTimeout;
         this.id = id;
         this.webClient = webClient;
         this.models = Set.copyOf(models);
@@ -190,6 +202,20 @@ public class OllamaProvider implements LlmProvider {
                     createdAt));
         }
         return Flux.fromIterable(chunks);
+    }
+
+    @Override
+    public Mono<Boolean> isHealthy() {
+        // GET /v1/models, not a completion: listing models costs the server nothing, while a
+        // generated token costs a GPU. A probe that runs every few seconds forever must be free.
+        return webClient
+                .get()
+                .uri("/v1/models")
+                .retrieve()
+                .toBodilessEntity()
+                .map(response -> response.getStatusCode().is2xxSuccessful())
+                .timeout(healthTimeout)
+                .onErrorReturn(false);
     }
 
     private OllamaWire.ChatRequest toWire(ChatRequest request) {

@@ -37,6 +37,17 @@ public record ChatRequest(String model, List<ChatMessage> messages, Integer maxT
         messages = List.copyOf(messages);
     }
 
+    /**
+     * The same request aimed at a different upstream model name.
+     *
+     * <p>An alias resolves to a different concrete model on each provider, so the request that
+     * reaches an adapter is never quite the one the client sent. Rewriting here, rather than
+     * letting each adapter reach for a target, keeps that substitution in one place.
+     */
+    public ChatRequest withModel(String replacement) {
+        return new ChatRequest(replacement, messages, maxTokens, temperature);
+    }
+
     public static ChatRequest of(String model, ChatMessage... messages) {
         return new ChatRequest(model, List.of(messages), null, null);
     }

@@ -3,192 +3,400 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Gateway — Console</title>
+<title>LLM Gateway — Control Plane</title>
 <style>
-  /* Self-contained on purpose: no CDN, no fonts, no build step. The gateway must run on a
-     laptop with no network, and a demo page that needs one would break that promise. */
+  /* Self-contained on purpose: no CDN, no web fonts, no build step. The gateway must run on a
+     laptop with no network, and a console that needs one would break that promise. */
   :root {
-    --bg: #ffffff; --panel: #f7f8fa; --border: #e3e6ea; --text: #14171a;
-    --muted: #667085; --accent: #2f6feb; --accent-soft: #eaf0fe;
-    --ok: #17803d; --err: #c0392b; --warn: #b7791f; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --bg: #fbfcfd;
+    --surface: #ffffff;
+    --surface-2: #f4f6f8;
+    --border: #e2e6ea;
+    --border-strong: #cdd4db;
+    --text: #10151b;
+    --text-dim: #5b6773;
+    --text-faint: #8b96a2;
+    --accent: #3b5bdb;
+    --accent-soft: #edf1fe;
+    --ok: #0f8a4a;
+    --ok-soft: #e8f6ee;
+    --warn: #a86a00;
+    --warn-soft: #fdf3e2;
+    --err: #c3352b;
+    --err-soft: #fdeeed;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 2px rgba(16, 21, 27, .04), 0 4px 16px rgba(16, 21, 27, .05);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1216; --panel: #161b22; --border: #262d36; --text: #e6edf3;
-      --muted: #8b949e; --accent: #4c8dff; --accent-soft: #16233b;
-      --ok: #3fb950; --err: #f85149; --warn: #d29922;
+      --bg: #0b0e12;
+      --surface: #12171e;
+      --surface-2: #171d25;
+      --border: #232b35;
+      --border-strong: #323c48;
+      --text: #e8edf3;
+      --text-dim: #97a3b1;
+      --text-faint: #6b7683;
+      --accent: #6a8bff;
+      --accent-soft: #17203a;
+      --ok: #45c07d;
+      --ok-soft: #12251b;
+      --warn: #e0a33a;
+      --warn-soft: #291f0f;
+      --err: #f2695e;
+      --err-soft: #2a1614;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .28);
     }
   }
+
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
+
+  /* ---------- app frame ---------- */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
   header {
-    border-bottom: 1px solid var(--border); padding: 14px 20px;
-    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 22px; height: 58px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 10;
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
-  header .sub { color: var(--muted); font-size: 13px; }
-  .badge {
-    margin-left: auto; font-size: 12px; padding: 3px 9px; border-radius: 999px;
-    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+  .logo {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #9c6bff));
+    display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 700; letter-spacing: -.5px;
   }
-  .badge.up { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
-  .badge.down { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
-  main { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: calc(100vh - 56px); }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  .controls { border-right: 1px solid var(--border); padding: 18px 20px; }
-  @media (max-width: 900px) { .controls { border-right: none; border-bottom: 1px solid var(--border); } }
-  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
-          color: var(--muted); margin: 16px 0 6px; font-weight: 600; }
-  label:first-of-type { margin-top: 0; }
-  select, textarea, input {
-    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
-    background: var(--bg); color: var(--text); font-family: inherit; font-size: 14px;
+  .title { font-size: 15px; font-weight: 640; letter-spacing: -.01em; }
+  .subtitle { color: var(--text-faint); font-size: 12.5px; }
+  header .spacer { margin-left: auto; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 550;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+    white-space: nowrap;
   }
-  textarea { resize: vertical; min-height: 96px; }
-  select:focus, textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-  .row { display: flex; gap: 10px; }
-  .row > * { flex: 1; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 14px; }
-  .check input { width: auto; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+  .pill.ok   { color: var(--ok);   background: var(--ok-soft);   border-color: color-mix(in srgb, var(--ok) 28%, var(--border)); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 28%, var(--border)); }
+  .pill.err  { color: var(--err);  background: var(--err-soft);  border-color: color-mix(in srgb, var(--err) 28%, var(--border)); }
+  .pill.dot-pulse .dot { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  main {
+    flex: 1; display: grid; grid-template-columns: 340px minmax(0, 1fr);
+    gap: 0; align-items: start;
+  }
+  @media (max-width: 940px) { main { grid-template-columns: 1fr; } }
+
+  /* ---------- left rail ---------- */
+  .rail {
+    border-right: 1px solid var(--border);
+    padding: 20px; display: flex; flex-direction: column; gap: 18px;
+    position: sticky; top: 58px;
+  }
+  @media (max-width: 940px) {
+    .rail { position: static; border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  label {
+    font-size: 11.5px; font-weight: 640; letter-spacing: .045em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  select, textarea, input[type=text], input[type=password], input[type=number] {
+    width: 100%; padding: 9px 11px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text);
+    font-family: inherit; font-size: 14px; transition: border-color .12s, box-shadow .12s;
+  }
+  select:focus, textarea:focus, input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  textarea { resize: vertical; min-height: 92px; line-height: 1.5; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .switch span { font-size: 13.5px; color: var(--text); }
+  .toggle { position: relative; width: 38px; height: 22px; flex: none; }
+  .toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: var(--border-strong); transition: background .15s; pointer-events: none;
+  }
+  .track::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .toggle input:checked + .track { background: var(--accent); }
+  .toggle input:checked + .track::after { transform: translateX(16px); }
+
   button {
-    margin-top: 18px; width: 100%; padding: 11px; border: 0; border-radius: 7px;
-    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+    padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid transparent;
+    font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: background .12s, border-color .12s, opacity .12s;
   }
-  button:disabled { opacity: 0.55; cursor: not-allowed; }
-  button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); margin-top: 8px; }
-  .output { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  button.primary { background: var(--accent); color: #fff; width: 100%; }
+  button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  button.ghost {
+    background: var(--surface); color: var(--text-dim); border-color: var(--border-strong); width: 100%;
+  }
+  button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-faint); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; flex-direction: column; gap: 8px; }
+
+  .hint { font-size: 12.5px; color: var(--text-faint); line-height: 1.5; }
+  code {
+    font-family: var(--mono); font-size: .89em;
+    background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  /* ---------- right pane ---------- */
+  .pane { padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px; }
   .stat {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
-    padding: 7px 11px; font-size: 12px; min-width: 84px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 11px 13px; box-shadow: var(--shadow);
   }
-  .stat b { display: block; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .stat span { color: var(--muted); }
+  .stat .k {
+    font-size: 10.5px; font-weight: 640; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .stat .v {
+    font-size: 20px; font-weight: 640; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; margin-top: 3px;
+  }
+  .stat .v.small { font-size: 15px; font-weight: 600; }
+  .stat.accent .v { color: var(--accent); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .card > .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 15px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+  }
+  .card > .head h2 {
+    margin: 0; font-size: 12px; font-weight: 640; letter-spacing: .045em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .card > .head .spacer { margin-left: auto; }
+  .card > .body { padding: 16px; }
+
   .answer {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
-    padding: 16px; white-space: pre-wrap; word-break: break-word; min-height: 140px;
-    font-size: 15px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word; min-height: 132px;
+    font-size: 15px; line-height: 1.65;
   }
-  .answer.empty { color: var(--muted); }
-  .answer .cursor {
-    display: inline-block; width: 7px; height: 1.05em; background: var(--accent);
-    vertical-align: text-bottom; animation: blink 1s steps(2, start) infinite;
+  .answer.placeholder { color: var(--text-faint); font-style: italic; }
+  .cursor {
+    display: inline-block; width: 2px; height: 1.05em; background: var(--accent);
+    vertical-align: text-bottom; margin-left: 1px; animation: blink 1.1s steps(2, start) infinite;
   }
   @keyframes blink { to { visibility: hidden; } }
-  .error {
-    border: 1px solid color-mix(in srgb, var(--err) 45%, var(--border));
-    background: color-mix(in srgb, var(--err) 8%, var(--bg));
-    color: var(--err); border-radius: 8px; padding: 11px 14px; font-size: 13.5px;
+
+  .banner {
+    display: flex; gap: 10px; align-items: flex-start;
+    border-radius: var(--radius); padding: 11px 14px; font-size: 13.5px; line-height: 1.5;
   }
-  details { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
-  summary { cursor: pointer; padding: 10px 14px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .banner.err  { background: var(--err-soft);  color: var(--err);  border: 1px solid color-mix(in srgb, var(--err) 30%, var(--border)); }
+  .banner.warn { background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border)); }
+  .banner .glyph { font-weight: 700; flex: none; }
+
+  .providers { display: flex; flex-wrap: wrap; gap: 8px; }
+  .provider {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+    font-size: 12.5px; background: var(--surface-2);
+  }
+  .provider .name { font-family: var(--mono); font-size: 12px; }
+  .provider .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--text-faint); }
+  .provider.up   .dot { background: var(--ok); }
+  .provider.down .dot { background: var(--err); }
+
   pre {
-    margin: 0; padding: 0 14px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
-    overflow-x: auto; max-height: 340px; overflow-y: auto; color: var(--muted);
+    margin: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    overflow-x: auto; max-height: 300px; overflow-y: auto; color: var(--text-dim);
+    white-space: pre-wrap; word-break: break-all;
   }
-  .hint { color: var(--muted); font-size: 12.5px; margin-top: 10px; line-height: 1.5; }
-  code { font-family: var(--mono); font-size: 0.92em; }
+  details.card > summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 15px; background: var(--surface-2);
+    font-size: 12px; font-weight: 640; letter-spacing: .045em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before {
+    content: "▸"; font-size: 11px; transition: transform .12s; color: var(--text-faint);
+  }
+  details.card[open] > summary::before { transform: rotate(90deg); }
+  details.card > summary + div { padding: 14px 15px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
+<div class="app">
 
-<header>
-  <h1>LLM Gateway</h1>
-  <span class="sub">OpenAI-compatible <code>/v1/chat/completions</code></span>
-  <span class="badge" id="health">checking…</span>
-</header>
+  <header>
+    <div class="logo">LG</div>
+    <div>
+      <div class="title">LLM Gateway</div>
+      <div class="subtitle">OpenAI-compatible control plane</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill" id="health"><span class="dot"></span><span id="healthText">checking…</span></span>
+  </header>
 
-<main>
-  <section class="controls">
-    <label for="apiKey">API key</label>
-    <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
-           placeholder="llmgw_...">
-    <p class="hint" style="margin-top:6px">
-      Sent as <code>Authorization: Bearer</code>. Kept in this browser's localStorage only —
-      the page never sends it anywhere but this gateway. Running the <code>local</code> profile
-      seeds a demo key; see <code>application-local.yml</code>.
-    </p>
-
-    <label for="model">Model</label>
-    <select id="model">
-      <optgroup label="Mock provider — deterministic, no GPU">
-        <option value="mock-fast">mock-fast</option>
-        <option value="mock-echo">mock-echo</option>
-      </optgroup>
-      <optgroup label="Ollama primary — GPU">
-        <option value="qwen2.5:1.5b-instruct">qwen2.5:1.5b-instruct</option>
-      </optgroup>
-      <optgroup label="Ollama secondary — CPU">
-        <option value="llama3.2:1b">llama3.2:1b</option>
-      </optgroup>
-      <optgroup label="Not served by anyone">
-        <option value="gpt-5-imaginary">gpt-5-imaginary (expect 404)</option>
-      </optgroup>
-    </select>
-
-    <label for="prompt">Prompt</label>
-    <textarea id="prompt">Explain what an API gateway does, in two sentences.</textarea>
-
-    <div class="row">
-      <div>
-        <label for="maxTokens">max_tokens</label>
-        <input id="maxTokens" type="number" value="120" min="1" max="4096">
+  <main>
+    <section class="rail">
+      <div class="field">
+        <label for="apiKey">API key</label>
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="llmgw_…">
+        <p class="hint">
+          Sent as <code>Authorization: Bearer</code>, stored only in this browser.
+          The <code>local</code> profile seeds a demo key.
+        </p>
       </div>
-      <div>
-        <label for="temperature">temperature</label>
-        <input id="temperature" type="number" value="0.7" min="0" max="2" step="0.1">
+
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model">
+          <optgroup label="Aliases — routed, with failover">
+            <option value="mock-ha">mock-ha</option>
+            <option value="chat-default">chat-default</option>
+          </optgroup>
+          <optgroup label="Mock provider — deterministic, no GPU">
+            <option value="mock-fast" selected>mock-fast</option>
+            <option value="mock-echo">mock-echo</option>
+          </optgroup>
+          <optgroup label="Ollama — real models">
+            <option value="qwen2.5:1.5b-instruct">qwen2.5:1.5b-instruct (GPU)</option>
+            <option value="llama3.2:1b">llama3.2:1b (CPU)</option>
+          </optgroup>
+          <optgroup label="Error paths">
+            <option value="gpt-5-imaginary">gpt-5-imaginary → 404</option>
+          </optgroup>
+        </select>
       </div>
-    </div>
 
-    <div class="check">
-      <input type="checkbox" id="stream" checked>
-      <label for="stream" style="margin:0; text-transform:none; letter-spacing:0; font-size:14px; color:var(--text);">
-        stream (server-sent events)
-      </label>
-    </div>
+      <div class="field">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt">Explain what an API gateway does, in two sentences.</textarea>
+      </div>
 
-    <button id="send">Send</button>
-    <button id="stop" class="secondary" disabled>Stop</button>
+      <div class="row">
+        <div class="field">
+          <label for="maxTokens">max_tokens</label>
+          <input id="maxTokens" type="number" value="120" min="1" max="4096">
+        </div>
+        <div class="field">
+          <label for="temperature">temperature</label>
+          <input id="temperature" type="number" value="0.7" min="0" max="2" step="0.1">
+        </div>
+      </div>
 
-    <p class="hint">
-      Pick <code>gpt-5-imaginary</code> to see the OpenAI-shaped 404, or a real model to watch
-      tokens arrive one frame at a time. Raw SSE frames are shown below the answer.
-    </p>
-  </section>
+      <div class="switch">
+        <span>Stream (SSE)</span>
+        <span class="toggle">
+          <input type="checkbox" id="stream" checked>
+          <span class="track"></span>
+        </span>
+      </div>
 
-  <section class="output">
-    <div class="stats">
-      <div class="stat"><span>TTFB</span><b id="s-ttfb">—</b></div>
-      <div class="stat"><span>Total</span><b id="s-total">—</b></div>
-      <div class="stat"><span>Frames</span><b id="s-frames">—</b></div>
-      <div class="stat"><span>Prompt tok</span><b id="s-ptok">—</b></div>
-      <div class="stat"><span>Output tok</span><b id="s-ctok">—</b></div>
-      <div class="stat"><span>Status</span><b id="s-status">—</b></div>
-    </div>
+      <div class="actions">
+        <button class="primary" id="send">Send request</button>
+        <button class="ghost" id="stop" disabled>Stop</button>
+      </div>
 
-    <div id="error" class="error" hidden></div>
+      <p class="hint">
+        <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> sends. Pick an alias to watch routing pick a
+        provider; pick <code>gpt-5-imaginary</code> to see the OpenAI-shaped error envelope.
+      </p>
+    </section>
 
-    <div class="answer empty" id="answer">The response will appear here.</div>
+    <section class="pane">
+      <div class="stats">
+        <div class="stat accent"><div class="k">TTFB</div><div class="v" id="s-ttfb">—</div></div>
+        <div class="stat"><div class="k">Total</div><div class="v" id="s-total">—</div></div>
+        <div class="stat"><div class="k">Frames</div><div class="v" id="s-frames">—</div></div>
+        <div class="stat"><div class="k">Prompt tok</div><div class="v" id="s-ptok">—</div></div>
+        <div class="stat"><div class="k">Output tok</div><div class="v" id="s-ctok">—</div></div>
+        <div class="stat"><div class="k">Status</div><div class="v small" id="s-status">—</div></div>
+      </div>
 
-    <details>
-      <summary>Raw wire frames</summary>
-      <pre id="raw">(nothing yet)</pre>
-    </details>
-  </section>
-</main>
+      <div class="banner err" id="error" hidden><span class="glyph">!</span><span id="errorText"></span></div>
+      <div class="banner warn" id="quota" hidden><span class="glyph">▲</span><span id="quotaText"></span></div>
+
+      <div class="card">
+        <div class="head">
+          <h2>Response</h2>
+          <div class="spacer"></div>
+          <span class="pill" id="servedBy" hidden></span>
+        </div>
+        <div class="body">
+          <div class="answer placeholder" id="answer">The response will appear here.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="head">
+          <h2>Rate limits</h2>
+          <div class="spacer"></div>
+          <span class="pill" id="rlPill" hidden></span>
+        </div>
+        <div class="body">
+          <div class="stats">
+            <div class="stat"><div class="k">Req remaining</div><div class="v" id="rl-req">—</div></div>
+            <div class="stat"><div class="k">Tok remaining</div><div class="v" id="rl-tok">—</div></div>
+            <div class="stat"><div class="k">Quota left</div><div class="v" id="rl-quota">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="head"><h2>Providers</h2></div>
+        <div class="body">
+          <div class="providers" id="providers"><span class="hint">Admin key required to read health.</span></div>
+        </div>
+      </div>
+
+      <details class="card">
+        <summary>Raw wire frames</summary>
+        <div><pre id="raw">(nothing yet)</pre></div>
+      </details>
+    </section>
+  </main>
+</div>
 
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const answerEl = $('answer'), rawEl = $('raw'), errEl = $('error');
+  const answerEl = $('answer'), rawEl = $('raw');
   let controller = null;
 
   const KEY_STORAGE = 'llmgw.apiKey';
   $('apiKey').value = localStorage.getItem(KEY_STORAGE) ?? '';
-  $('apiKey').addEventListener('change', (e) => localStorage.setItem(KEY_STORAGE, e.target.value.trim()));
+  $('apiKey').addEventListener('change', (e) => {
+    localStorage.setItem(KEY_STORAGE, e.target.value.trim());
+    refreshProviders();
+  });
 
   const authHeaders = () => {
     const key = $('apiKey').value.trim();
@@ -196,20 +404,81 @@
   };
 
   const setStat = (id, value) => { $(id).textContent = value; };
-  const resetStats = () => ['s-ttfb','s-total','s-frames','s-ptok','s-ctok','s-status']
-    .forEach((id) => setStat(id, '—'));
+  const resetStats = () => {
+    ['s-ttfb','s-total','s-frames','s-ptok','s-ctok','s-status','rl-req','rl-tok','rl-quota']
+      .forEach((id) => setStat(id, '—'));
+    $('servedBy').hidden = true;
+    $('rlPill').hidden = true;
+    $('quota').hidden = true;
+  };
+
+  const showBanner = (id, textId, message) => { $(textId).textContent = message; $(id).hidden = false; };
 
   async function checkHealth() {
-    const badge = $('health');
+    const pill = $('health');
     try {
       const res = await fetch('/actuator/health');
       const body = await res.json();
-      badge.textContent = 'gateway ' + body.status;
-      badge.className = 'badge ' + (body.status === 'UP' ? 'up' : 'down');
+      const up = body.status === 'UP';
+      $('healthText').textContent = up ? 'gateway up' : 'gateway ' + body.status;
+      pill.className = 'pill ' + (up ? 'ok' : 'err');
     } catch {
-      badge.textContent = 'gateway unreachable';
-      badge.className = 'badge down';
+      $('healthText').textContent = 'unreachable';
+      pill.className = 'pill err';
     }
+  }
+
+  // Provider health needs an admin key. A tenant key gets a 403, which is correct and not an
+  // error worth shouting about — the panel just says so.
+  async function refreshProviders() {
+    const box = $('providers');
+    const key = $('apiKey').value.trim();
+    if (!key) { box.innerHTML = '<span class="hint">Enter an API key to read provider health.</span>'; return; }
+    try {
+      const res = await fetch('/admin/providers', { headers: authHeaders() });
+      if (res.status === 403) {
+        box.innerHTML = '<span class="hint">This key is not an admin key, so provider health is hidden.</span>';
+        return;
+      }
+      if (!res.ok) { box.innerHTML = '<span class="hint">Provider health unavailable.</span>'; return; }
+      const body = await res.json();
+      box.innerHTML = '';
+      for (const p of body.providers) {
+        const el = document.createElement('span');
+        el.className = 'provider ' + (p.health === 'UP' ? 'up' : p.health === 'DOWN' ? 'down' : '');
+        el.innerHTML = '<span class="dot"></span><span class="name"></span><span class="hint"></span>';
+        el.querySelector('.name').textContent = p.id;
+        el.querySelector('.hint').textContent = p.health.toLowerCase();
+        box.appendChild(el);
+      }
+    } catch {
+      box.innerHTML = '<span class="hint">Provider health unavailable.</span>';
+    }
+  }
+
+  function applyRateLimitHeaders(headers) {
+    const req = headers.get('x-ratelimit-remaining-requests');
+    const tok = headers.get('x-ratelimit-remaining-tokens');
+    const quotaLeft = headers.get('x-llmgw-quota-remaining-tokens');
+    const warning = headers.get('x-llmgw-quota-warning');
+
+    if (req !== null) setStat('rl-req', req + ' / ' + headers.get('x-ratelimit-limit-requests'));
+    if (tok !== null) setStat('rl-tok', tok + ' / ' + headers.get('x-ratelimit-limit-tokens'));
+    setStat('rl-quota', quotaLeft !== null ? quotaLeft : 'unlimited');
+
+    const retryAfter = headers.get('retry-after');
+    if (retryAfter) {
+      $('rlPill').textContent = 'retry after ' + retryAfter + 's';
+      $('rlPill').className = 'pill err';
+      $('rlPill').hidden = false;
+    }
+    if (warning) showBanner('quota', 'quotaText', warning);
+  }
+
+  function busy(isBusy) {
+    $('send').disabled = isBusy;
+    $('stop').disabled = !isBusy;
+    $('health').classList.toggle('dot-pulse', isBusy);
   }
 
   function buildBody(stream) {
@@ -222,14 +491,10 @@
     };
   }
 
-  function showError(message) {
-    errEl.textContent = message;
-    errEl.hidden = false;
-  }
-
-  function busy(isBusy) {
-    $('send').disabled = isBusy;
-    $('stop').disabled = !isBusy;
+  function renderAnswer(text, streaming) {
+    answerEl.className = 'answer';
+    answerEl.textContent = text;
+    if (streaming) answerEl.insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
   }
 
   async function send() {
@@ -237,11 +502,10 @@
     const started = performance.now();
     let firstByteAt = null, frames = 0, text = '';
 
-    errEl.hidden = true;
+    $('error').hidden = true;
     resetStats();
     rawEl.textContent = '';
-    answerEl.className = 'answer';
-    answerEl.innerHTML = '<span class="cursor"></span>';
+    renderAnswer('', true);
     busy(true);
     controller = new AbortController();
 
@@ -253,42 +517,38 @@
         signal: controller.signal
       });
       setStat('s-status', res.status);
+      applyRateLimitHeaders(res.headers);
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        rawEl.textContent = body ? JSON.stringify(body, null, 2) : '(no body)';
+        answerEl.className = 'answer placeholder';
+        answerEl.textContent = 'Request failed.';
+        showBanner('error', 'errorText',
+          `${body?.error?.code ?? 'error'}: ${body?.error?.message ?? res.statusText}`);
+        setStat('s-ttfb', Math.round(performance.now() - started) + ' ms');
+        return;
+      }
 
       if (!stream) {
         const body = await res.json();
         rawEl.textContent = JSON.stringify(body, null, 2);
-        if (!res.ok) {
-          answerEl.className = 'answer empty';
-          answerEl.textContent = '(request failed)';
-          showError(`${body?.error?.code ?? 'error'}: ${body?.error?.message ?? res.statusText}`);
-        } else {
-          answerEl.textContent = body.choices[0].message.content;
-          setStat('s-ptok', body.usage.prompt_tokens);
-          setStat('s-ctok', body.usage.completion_tokens);
-          setStat('s-frames', 1);
-        }
-        setStat('s-ttfb', Math.round(performance.now() - started) + ' ms');
-        setStat('s-total', Math.round(performance.now() - started) + ' ms');
-        return;
-      }
-
-      if (!res.ok) {
-        // A pre-stream failure (bad model, validation) still comes back as normal JSON,
-        // because the error happens before any SSE frame is written.
-        const body = await res.json().catch(() => null);
-        rawEl.textContent = body ? JSON.stringify(body, null, 2) : '(no body)';
-        answerEl.className = 'answer empty';
-        answerEl.textContent = '(request failed)';
-        showError(`${body?.error?.code ?? 'error'}: ${body?.error?.message ?? res.statusText}`);
-        setStat('s-ttfb', Math.round(performance.now() - started) + ' ms');
+        renderAnswer(body.choices[0].message.content, false);
+        setStat('s-ptok', body.usage.prompt_tokens);
+        setStat('s-ctok', body.usage.completion_tokens);
+        setStat('s-frames', 1);
+        $('servedBy').textContent = body.model;
+        $('servedBy').hidden = false;
+        const elapsed = Math.round(performance.now() - started);
+        setStat('s-ttfb', elapsed + ' ms');
+        setStat('s-total', elapsed + ' ms');
         return;
       }
 
       // Minimal SSE reader: split on blank lines, keep the "data:" payloads.
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
-      let done = false;
+      let buffer = '', done = false;
 
       while (!done) {
         const { value, done: finished } = await reader.read();
@@ -301,9 +561,9 @@
 
         let split;
         while ((split = buffer.indexOf('\n\n')) !== -1) {
-          const rawFrame = buffer.slice(0, split);
+          const frame = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);
-          const payload = rawFrame.split('\n')
+          const payload = frame.split('\n')
             .filter((line) => line.startsWith('data:'))
             .map((line) => line.slice(5).trim())
             .join('\n');
@@ -311,50 +571,49 @@
 
           frames++;
           setStat('s-frames', frames);
-          rawEl.textContent += `data: ${payload}\n`;
+          rawEl.textContent += 'data: ' + payload + '\n';
           rawEl.scrollTop = rawEl.scrollHeight;
 
           if (payload === '[DONE]') { done = true; break; }
 
-          let frame;
-          try { frame = JSON.parse(payload); } catch { continue; }
+          let parsed;
+          try { parsed = JSON.parse(payload); } catch { continue; }
 
-          if (frame.error) {
-            // Mid-stream failure: headers said 200 long ago, so the only place left to
-            // report the problem is inside the stream itself.
-            showError(`mid-stream ${frame.error.code ?? 'error'}: ${frame.error.message}`);
+          if (parsed.error) {
+            // Mid-stream failure: headers said 200 long ago, so the only place left to report
+            // the problem is inside the stream itself.
+            showBanner('error', 'errorText',
+              `mid-stream ${parsed.error.code ?? 'error'}: ${parsed.error.message}`);
             done = true;
             break;
           }
-          const choice = frame.choices?.[0];
+          if (parsed.model && $('servedBy').hidden) {
+            $('servedBy').textContent = parsed.model;
+            $('servedBy').hidden = false;
+          }
+          const choice = parsed.choices?.[0];
           if (choice?.delta?.content) {
             text += choice.delta.content;
-            answerEl.innerHTML = '';
-            answerEl.append(document.createTextNode(text));
-            answerEl.insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
+            renderAnswer(text, true);
           }
-          if (frame.usage) {
-            setStat('s-ptok', frame.usage.prompt_tokens);
-            setStat('s-ctok', frame.usage.completion_tokens);
+          if (parsed.usage) {
+            setStat('s-ptok', parsed.usage.prompt_tokens);
+            setStat('s-ctok', parsed.usage.completion_tokens);
           }
         }
       }
 
-      answerEl.innerHTML = '';
-      answerEl.textContent = text || '(empty response)';
-      if (!text) answerEl.className = 'answer empty';
+      renderAnswer(text || '(empty response)', false);
+      if (!text) answerEl.className = 'answer placeholder';
       setStat('s-total', Math.round(performance.now() - started) + ' ms');
 
     } catch (e) {
-      if (e.name === 'AbortError') {
-        showError('Cancelled by user.');
-      } else {
-        showError(String(e));
-      }
       answerEl.querySelector('.cursor')?.remove();
+      showBanner('error', 'errorText', e.name === 'AbortError' ? 'Cancelled.' : String(e));
     } finally {
       busy(false);
       controller = null;
+      refreshProviders();
     }
   }
 
@@ -365,6 +624,7 @@
   });
 
   checkHealth();
+  refreshProviders();
 })();
 </script>
 </body>

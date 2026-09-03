@@ -49,6 +49,11 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("com.github.ben-manes.caffeine:caffeine")
+
+    // Circuit breaking and timeouts per provider. The reactor module is what makes the operators
+    // usable inside a Mono/Flux chain rather than only via annotations on blocking methods.
+    implementation(libs.resilience4j.spring.boot3)
+    implementation(libs.resilience4j.reactor)
     runtimeOnly("org.postgresql:postgresql")
 
     // Generates META-INF/spring-configuration-metadata.json so IDEs autocomplete

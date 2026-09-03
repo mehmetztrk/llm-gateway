@@ -7,8 +7,9 @@ import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyHasher;
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
 import io.github.mehmetztrk.llmgateway.application.service.AdminService;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
-import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
+import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
+import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -35,8 +36,9 @@ public class ApplicationConfig {
     }
 
     @Bean
-    public ChatCompletionUseCase chatCompletionUseCase(ProviderRegistry registry, RateLimitService limits) {
-        return new ChatCompletionService(registry, limits);
+    public ChatCompletionUseCase chatCompletionUseCase(
+            RoutingService routing, FailoverExecutor failover, RateLimitService limits) {
+        return new ChatCompletionService(routing, failover, limits);
     }
 
     @Bean

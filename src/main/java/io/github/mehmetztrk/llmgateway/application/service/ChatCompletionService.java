@@ -2,14 +2,12 @@ package io.github.mehmetztrk.llmgateway.application.service;
 
 import io.github.mehmetztrk.llmgateway.application.port.in.ChatCompletionUseCase;
 import io.github.mehmetztrk.llmgateway.application.port.in.GatewayResult;
-import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
 import io.github.mehmetztrk.llmgateway.domain.chat.CompletionChunk;
-import io.github.mehmetztrk.llmgateway.domain.error.GatewayException;
-import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
+import io.github.mehmetztrk.llmgateway.domain.routing.RouteTarget;
 import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
-import java.util.function.Function;
+import java.util.List;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -17,19 +15,21 @@ import reactor.core.publisher.Mono;
  * The request pipeline.
  *
  * <p>The order is deliberate and each step is cheaper than the one after it: policy, then admission,
- * then the provider. A model a tenant may not use costs no Redis round trip; a request over its
- * limit costs no provider call.
+ * then routing, then the provider. A model a tenant may not use costs no Redis round trip; a request
+ * over its limit costs no provider call.
  *
  * <p>Caching slots in between admission and routing in M6; the usage ledger hangs off settlement in
  * M7.
  */
 public class ChatCompletionService implements ChatCompletionUseCase {
 
-    private final ProviderRegistry registry;
+    private final RoutingService routing;
+    private final FailoverExecutor failover;
     private final RateLimitService limits;
 
-    public ChatCompletionService(ProviderRegistry registry, RateLimitService limits) {
-        this.registry = registry;
+    public ChatCompletionService(RoutingService routing, FailoverExecutor failover, RateLimitService limits) {
+        this.routing = routing;
+        this.failover = failover;
         this.limits = limits;
     }
 
@@ -37,12 +37,11 @@ public class ChatCompletionService implements ChatCompletionUseCase {
     public Mono<GatewayResult<Completion>> complete(AuthenticatedCaller caller, ChatRequest request) {
         return Mono.defer(() -> {
             caller.tenant().requireModelAllowed(request.model());
-            LlmProvider provider = registry.requireProviderFor(request.model());
+            List<RouteTarget> targets = routing.resolve(request.model());
             long estimate = estimateTokens(request);
 
             return limits.admit(caller, estimate)
-                    .flatMap(admission -> provider.complete(request)
-                            .onErrorMap(normaliseFrom(provider))
+                    .flatMap(admission -> failover.complete(targets, request)
                             .flatMap(completion -> limits.settle(
                                             caller, estimate, completion.usage().totalTokens())
                                     .map(quota -> new GatewayResult<>(
@@ -54,12 +53,11 @@ public class ChatCompletionService implements ChatCompletionUseCase {
     public Mono<GatewayResult<Flux<CompletionChunk>>> stream(AuthenticatedCaller caller, ChatRequest request) {
         return Mono.defer(() -> {
             caller.tenant().requireModelAllowed(request.model());
-            LlmProvider provider = registry.requireProviderFor(request.model());
+            List<RouteTarget> targets = routing.resolve(request.model());
             long estimate = estimateTokens(request);
 
             return limits.admit(caller, estimate).map(admission -> {
-                Flux<CompletionChunk> chunks = provider.stream(request)
-                        .onErrorMap(normaliseFrom(provider))
+                Flux<CompletionChunk> chunks = failover.stream(targets, request)
                         // Settlement is attached to the terminal chunk rather than to the end of
                         // the stream: a stream that fails halfway still consumed whatever it
                         // produced, and doOnComplete would skip exactly that case.
@@ -87,16 +85,5 @@ public class ChatCompletionService implements ChatCompletionUseCase {
                 .mapToLong(message -> message.content().length())
                 .sum();
         return Math.max(1, characters / 4);
-    }
-
-    /**
-     * A provider that leaks a transport exception is a bug in that adapter, but it must not reach
-     * the client as a 500. Anything not already in the domain vocabulary is normalised here.
-     */
-    private Function<Throwable, Throwable> normaliseFrom(LlmProvider provider) {
-        return error -> error instanceof GatewayException
-                ? error
-                : new ProviderCallFailed(
-                        provider.id(), "unexpected error: " + error.getClass().getSimpleName(), error);
     }
 }

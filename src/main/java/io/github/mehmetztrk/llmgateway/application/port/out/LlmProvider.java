@@ -59,4 +59,16 @@ public interface LlmProvider {
      * io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed}. It never simply stops.
      */
     Flux<CompletionChunk> stream(ChatRequest request);
+
+    /**
+     * Cheap liveness probe, called on a schedule rather than per request.
+     *
+     * <p>Must not generate a completion: a health check that costs a model inference would be the
+     * most expensive request the gateway makes, and it would run forever whether or not anyone is
+     * using the provider.
+     *
+     * <p>Emits {@code false} rather than an error when the provider is unreachable, so the caller
+     * has one thing to handle instead of two.
+     */
+    Mono<Boolean> isHealthy();
 }

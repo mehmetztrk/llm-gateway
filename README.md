@@ -6,11 +6,12 @@ cost accounting and distributed tracing.
 
 Any OpenAI SDK works against it by changing `base_url` and nothing else.
 
-> **Status: M4 of 10 — multi-tenant, authenticated and rate limited.** `/v1/chat/completions` works streamed and
+> **Status: M5 of 10 — routed, with health-aware failover.** `/v1/chat/completions` works streamed and
 > non-streamed against a local Ollama and a deterministic mock provider; the official `openai`
 > Python SDK talks to it with only `base_url` changed. Requests now require an API key, which
-> resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Caching
-> and failover are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
+> resolves to a tenant, its model allow-list, its per-minute limits and its monthly budget. Model
+> aliases route to an ordered list of providers with circuit breaking and automatic failover.
+> Caching, the usage ledger and tracing are not implemented yet — see [Roadmap](#roadmap). This notice is updated as milestones land, and no
 > capability is claimed here before it exists and is tested.
 
 ## Demo console
@@ -131,7 +132,40 @@ curl -s -X POST localhost:8080/admin/tenants -H 'Authorization: Bearer $ADMIN_KE
 | `POST` | `/admin/tenants/{id}/keys` | Issue a key — the plaintext is returned **once** |
 | `GET` | `/admin/tenants/{id}/keys` | List key metadata, never the keys themselves |
 | `PUT` | `/admin/tenants/{id}/limits` | Set per-minute limits and the monthly budget |
+| `GET` | `/admin/providers` | Provider health, as routing currently believes it |
 | `DELETE` | `/admin/keys/{id}` | Revoke a key (idempotent, soft delete) |
+
+## Routing and failover
+
+A **model alias** is a name a tenant asks for; it resolves to an ordered list of concrete
+`(provider, model)` targets. The first healthy one serves the request, the rest are the failover
+chain:
+
+```yaml
+chat-default:
+  - { provider: ollama-primary,   model: qwen2.5:1.5b-instruct }   # GPU
+  - { provider: ollama-secondary, model: llama3.2:1b }             # CPU fallback
+```
+
+A concrete model name still resolves to exactly one target, so clients that hardcode one keep
+working and never get a silently substituted model. Failover is what aliases are for.
+
+Every provider is probed in the background and wrapped in a Resilience4j circuit breaker. Health is
+`UP`, `UNKNOWN` or `DOWN`; unhealthy providers are moved to the back of the list rather than removed,
+so a stale belief cannot become a self-inflicted outage.
+
+**Failover stops at the first streamed chunk.** Once a client holds part of an answer, switching
+providers would splice two responses together, so the failure is reported in-band instead.
+
+Measured by `FailoverChaosIT` with the primary failing every call:
+
+```
+failover latency: median 7 ms, worst 8 ms (target < 2000 ms)
+```
+
+The honest reading is not "failover takes 7 ms" but "once the probe has demoted the dead provider,
+its outage is invisible to callers". Reasoning in
+[ADR-0010](docs/adr/0010-alias-based-routing-and-failover.md).
 
 ## Rate limits and quotas
 
@@ -186,7 +220,7 @@ should never be enabled against real traffic.
 | M2 | SSE streaming, backpressure, mid-stream failure | ✅ done |
 | M3 | Tenants, API keys, Flyway schema | ✅ done |
 | M4 | Rate limiting, quotas, 429 semantics | ✅ done |
-| M5 | Routing, circuit breaker, failover + chaos test | ⬜ |
+| M5 | Routing, circuit breaker, failover + chaos test | ✅ done |
 | M6 | Exact + semantic cache, tenant isolation | ⬜ |
 | M7 | Usage ledger, cost accounting, usage API | ⬜ |
 | M8 | OTel GenAI spans, metrics, Grafana dashboard | ⬜ |

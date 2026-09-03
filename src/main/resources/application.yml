@@ -21,6 +21,31 @@ logging:
     root: INFO
     io.github.mehmetztrk.llmgateway: INFO
 
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      # Percentage-based rather than a raw count: a provider serving 10 000 requests a minute and
+      # one serving 10 should trip on the same *proportion* of failures, not the same number.
+      failureRateThreshold: 50
+      slidingWindowType: COUNT_BASED
+      slidingWindowSize: 20
+      # Below this many calls the breaker stays closed regardless of failure rate. Without it, the
+      # first two requests after start-up could open a breaker on a perfectly healthy provider.
+      minimumNumberOfCalls: 10
+      waitDurationInOpenState: 5s
+      permittedNumberOfCallsInHalfOpenState: 3
+      automaticTransitionFromOpenToHalfOpenEnabled: true
+      registerHealthIndicator: true
+  instances:
+    ollama-primary:
+      baseConfig: default
+    ollama-secondary:
+      baseConfig: default
+    mock:
+      baseConfig: default
+    mock-standby:
+      baseConfig: default
+
 management:
   endpoints:
     web:
@@ -76,6 +101,27 @@ gateway:
     bootstrap-admin-key: ${GATEWAY_BOOTSTRAP_ADMIN_KEY:}
     bootstrap-tenant-key: ${GATEWAY_BOOTSTRAP_TENANT_KEY:}
 
+  routing:
+    probe-interval: 10s
+    probe-timeout: 2s
+    # One failure is noise; three in a row is a pattern worth acting on.
+    failure-threshold: 3
+    aliases:
+      # An alias says what the client wants, not where to get it. That indirection is what makes
+      # failover expressible: without it, "fail over" would mean silently answering with a
+      # different model than the one the client named.
+      chat-default:
+        - provider: ollama-primary
+          model: qwen2.5:1.5b-instruct
+        - provider: ollama-secondary
+          model: llama3.2:1b
+      # Two mock targets so failover can be demonstrated with no GPU and no network at all.
+      mock-ha:
+        - provider: mock
+          model: mock-fast
+        - provider: mock-standby
+          model: mock-fast
+
   rate-limit:
     # Short on purpose: a slow Redis must fail fast rather than add latency to every request.
     # Exceeding it refuses the request — the limiter fails closed. See ADR-0004.
@@ -111,3 +157,15 @@ gateway:
       completion-tokens: 32
       error-rate: 0.0
       seed: 42
+
+    # The failover target for the mock-ha alias. A different seed so its answers are visibly its
+    # own — a failover you cannot see happen is one you cannot demonstrate.
+    mock-standby:
+      enabled: true
+      models:
+        - mock-fast
+        - mock-echo
+      latency: 0ms
+      completion-tokens: 32
+      error-rate: 0.0
+      seed: 4242

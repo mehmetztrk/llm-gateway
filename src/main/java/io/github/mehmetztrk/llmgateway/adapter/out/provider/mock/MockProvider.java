@@ -212,6 +212,13 @@ public class MockProvider implements LlmProvider {
         }
     }
 
+    @Override
+    public Mono<Boolean> isHealthy() {
+        // The mock is healthy exactly when it is not configured to fail everything, so a chaos
+        // scenario can be expressed entirely in configuration.
+        return Mono.just(properties.errorRate() < 1.0);
+    }
+
     /** Exposed so tests can assert the configured latency without reaching into properties. */
     public Duration configuredLatency() {
         return properties.latency();

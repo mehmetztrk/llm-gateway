@@ -1,11 +1,13 @@
 package io.github.mehmetztrk.llmgateway.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mehmetztrk.llmgateway.adapter.out.provider.ResilientProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.ollama.OllamaProvider;
 import io.github.mehmetztrk.llmgateway.application.port.out.LlmProvider;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,8 +41,16 @@ public class ProviderConfig {
             ProvidersProperties properties,
             WebClient.Builder webClientBuilder,
             Clock clock,
-            ObjectMapper objectMapper) {
-        return new ProviderRegistry(buildProviders(properties, webClientBuilder, clock, objectMapper));
+            ObjectMapper objectMapper,
+            CircuitBreakerRegistry circuitBreakers) {
+
+        // Every provider is wrapped, including the mock: a benchmark that skipped the breaker
+        // would not be measuring the code that actually runs in production.
+        List<LlmProvider> resilient = buildProviders(properties, webClientBuilder, clock, objectMapper).stream()
+                .map(provider -> (LlmProvider) new ResilientProvider(
+                        provider, circuitBreakers.circuitBreaker(provider.id().value())))
+                .toList();
+        return new ProviderRegistry(resilient);
     }
 
     private List<LlmProvider> buildProviders(
@@ -76,6 +86,15 @@ public class ProviderConfig {
             ProviderId id = ProviderId.of("mock");
             providers.add(new MockProvider(id, properties.mock(), clock));
             log.info("registered provider {} serving {}", id, properties.mock().models());
+        }
+
+        if (properties.mockStandby().enabled()) {
+            ProviderId id = ProviderId.of("mock-standby");
+            providers.add(new MockProvider(id, properties.mockStandby(), clock));
+            log.info(
+                    "registered provider {} serving {}",
+                    id,
+                    properties.mockStandby().models());
         }
 
         if (providers.isEmpty()) {

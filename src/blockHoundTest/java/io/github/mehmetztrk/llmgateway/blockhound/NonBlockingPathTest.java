@@ -7,8 +7,10 @@ import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProviderProperties;
 import io.github.mehmetztrk.llmgateway.application.port.in.GatewayResult;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
+import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
+import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
 import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
@@ -19,6 +21,7 @@ import io.github.mehmetztrk.llmgateway.domain.tenant.AuthenticatedCaller;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
 import io.github.mehmetztrk.llmgateway.domain.tenant.Tenant;
 import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
+import io.github.mehmetztrk.llmgateway.health.RecordingHealthRegistry;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryQuotaStore;
 import io.github.mehmetztrk.llmgateway.limits.InMemoryRateLimiter;
 import java.time.Clock;
@@ -26,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
@@ -66,8 +70,12 @@ class NonBlockingPathTest {
                 ProviderId.of("mock"),
                 new MockProviderProperties(true, Set.of("mock-fast"), Duration.ZERO, Duration.ZERO, 16, 0.0, -1, 42L),
                 FIXED);
+        ProviderRegistry registry = new ProviderRegistry(List.of(provider));
+        RecordingHealthRegistry health = new RecordingHealthRegistry();
+        RoutingService routing = new RoutingService(registry, health, Map.of());
         return new ChatCompletionService(
-                new ProviderRegistry(List.of(provider)),
+                routing,
+                new FailoverExecutor(registry, health),
                 new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()));
     }
 

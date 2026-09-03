@@ -17,11 +17,14 @@ wiremock = "3.13.2"
 # Instruments the JVM to detect blocking calls on non-blocking threads. Version is not managed by
 # Spring Boot's BOM, unlike Testcontainers and Caffeine, which deliberately are.
 blockhound = "1.0.17.RELEASE"
+resilience4j = "2.4.0"
 
 [libraries]
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 wiremock = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
 blockhound = { module = "io.projectreactor.tools:blockhound", version.ref = "blockhound" }
+resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spring-boot3", version.ref = "resilience4j" }
+resilience4j-reactor = { module = "io.github.resilience4j:resilience4j-reactor", version.ref = "resilience4j" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

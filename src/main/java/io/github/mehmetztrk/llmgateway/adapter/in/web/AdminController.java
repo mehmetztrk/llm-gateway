@@ -2,8 +2,11 @@ package io.github.mehmetztrk.llmgateway.adapter.in.web;
 
 import io.github.mehmetztrk.llmgateway.adapter.in.web.dto.AdminDtos;
 import io.github.mehmetztrk.llmgateway.application.port.in.AdminUseCase;
+import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
+import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
 import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
 import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
+import io.github.mehmetztrk.llmgateway.domain.routing.ProviderHealth;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ApiKeyRole;
 import io.github.mehmetztrk.llmgateway.domain.tenant.ModelAllowList;
 import io.github.mehmetztrk.llmgateway.domain.tenant.TenantId;
@@ -37,14 +40,40 @@ class AdminController {
 
     private final AdminUseCase admin;
     private final Scheduler blockingScheduler;
+    private final ProviderRegistry providerRegistry;
+    private final RoutingService routing;
 
-    AdminController(AdminUseCase admin, Scheduler blockingScheduler) {
+    AdminController(
+            AdminUseCase admin,
+            Scheduler blockingScheduler,
+            ProviderRegistry providerRegistry,
+            RoutingService routing) {
         this.admin = admin;
         this.blockingScheduler = blockingScheduler;
+        this.providerRegistry = providerRegistry;
+        this.routing = routing;
     }
 
     private <T> Mono<T> offloaded(java.util.concurrent.Callable<T> work) {
         return Mono.fromCallable(work).subscribeOn(blockingScheduler);
+    }
+
+    /**
+     * why this is not an actuator health indicator: actuator health decides whether the process
+     * should be restarted or taken out of a load balancer. A provider being down is neither — the
+     * gateway is working exactly as designed, by routing around it. Conflating the two turns a
+     * successful failover into a rolling restart.
+     */
+    @GetMapping("/providers")
+    Mono<AdminDtos.ProviderStatusResponse> providers() {
+        return Mono.fromSupplier(() -> new AdminDtos.ProviderStatusResponse(providerRegistry.all().stream()
+                .map(provider -> new AdminDtos.ProviderStatus(
+                        provider.id().value(),
+                        routing.healthSnapshot()
+                                .getOrDefault(provider.id(), ProviderHealth.UNKNOWN)
+                                .name(),
+                        provider.supportedModels()))
+                .toList()));
     }
 
     @PostMapping("/tenants")

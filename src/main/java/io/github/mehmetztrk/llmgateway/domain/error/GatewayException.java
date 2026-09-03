@@ -20,7 +20,8 @@ public abstract sealed class GatewayException extends RuntimeException
                 TenantNotFound,
                 RateLimitExceeded,
                 QuotaExceeded,
-                LimiterUnavailable {
+                LimiterUnavailable,
+                NoProviderAvailable {
 
     protected GatewayException(String message) {
         super(message);

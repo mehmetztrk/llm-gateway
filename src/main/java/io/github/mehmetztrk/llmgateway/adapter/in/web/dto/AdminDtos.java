@@ -90,5 +90,14 @@ public final class AdminDtos {
 
     public record TenantListResponse(List<TenantResponse> tenants) {}
 
+    /**
+     * Operational view of routing. Exposed because "which provider is the gateway avoiding right
+     * now, and why" is the first question during an incident, and grepping logs for it is not an
+     * answer.
+     */
+    public record ProviderStatusResponse(List<ProviderStatus> providers) {}
+
+    public record ProviderStatus(String id, String health, Set<String> models) {}
+
     public record ApiKeyListResponse(List<ApiKeyResponse> keys) {}
 }

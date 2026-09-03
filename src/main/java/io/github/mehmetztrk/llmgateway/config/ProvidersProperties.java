@@ -19,7 +19,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 @ConfigurationProperties(prefix = "gateway.providers")
 public record ProvidersProperties(
         @DefaultValue Map<String, OllamaInstance> ollama,
-        @DefaultValue MockProviderProperties mock) {
+        @DefaultValue MockProviderProperties mock,
+        @DefaultValue MockProviderProperties mockStandby) {
 
     public ProvidersProperties {
         ollama = ollama == null ? Map.of() : new LinkedHashMap<>(ollama);

@@ -6,6 +6,7 @@ import io.github.mehmetztrk.llmgateway.domain.error.GatewayException;
 import io.github.mehmetztrk.llmgateway.domain.error.LimiterUnavailable;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotAllowed;
 import io.github.mehmetztrk.llmgateway.domain.error.ModelNotFound;
+import io.github.mehmetztrk.llmgateway.domain.error.NoProviderAvailable;
 import io.github.mehmetztrk.llmgateway.domain.error.ProviderCallFailed;
 import io.github.mehmetztrk.llmgateway.domain.error.QuotaExceeded;
 import io.github.mehmetztrk.llmgateway.domain.error.RateLimitExceeded;
@@ -51,6 +52,15 @@ class GatewayErrorHandler {
                         e);
             case TenantNotFound e ->
                 respond(HttpStatus.NOT_FOUND, e.getMessage(), "invalid_request_error", "tenant_not_found", e);
+            case NoProviderAvailable e ->
+                respond(
+                        // 503 rather than 502: 502 says the thing behind me is broken, 503 says I
+                        // have nothing left to try. The distinction matters to whoever is paged.
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        "No provider is currently able to serve this model.",
+                        "api_error",
+                        "no_provider_available",
+                        e);
             case RateLimitExceeded e -> rateLimited(e);
             case QuotaExceeded e ->
                 respond(

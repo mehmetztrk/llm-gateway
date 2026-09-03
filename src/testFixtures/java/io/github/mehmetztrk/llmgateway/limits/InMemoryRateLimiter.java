@@ -19,16 +19,23 @@ public class InMemoryRateLimiter implements RateLimiter {
 
     private final Map<String, AtomicLong> buckets = new ConcurrentHashMap<>();
 
+    /**
+     * why synchronized rather than a clever {@code updateAndGet}: the decision and the deduction
+     * have to be one step, and the caller needs to know which happened. Deriving "was it allowed"
+     * from the remaining count afterwards is exactly the bug this double existed to help find —
+     * an empty bucket and a bucket with room can leave the same remaining value.
+     */
     @Override
-    public Mono<RateLimitSnapshot> tryConsume(String bucketKey, long limit, long permits) {
+    public synchronized Mono<RateLimitSnapshot> tryConsume(String bucketKey, long limit, long permits) {
         AtomicLong bucket = buckets.computeIfAbsent(bucketKey, key -> new AtomicLong(limit));
-        long remaining = bucket.updateAndGet(current -> current >= permits ? current - permits : current);
+        long current = bucket.get();
 
-        boolean allowed = remaining <= limit - permits || permits == 0;
-        return Mono.just(
-                allowed
-                        ? RateLimitSnapshot.allowed(limit, remaining)
-                        : RateLimitSnapshot.denied(limit, remaining, Duration.ofSeconds(1)));
+        if (current < permits) {
+            return Mono.just(RateLimitSnapshot.denied(limit, current, Duration.ofSeconds(1)));
+        }
+        long remaining = current - permits;
+        bucket.set(remaining);
+        return Mono.just(RateLimitSnapshot.allowed(limit, remaining));
     }
 
     @Override
