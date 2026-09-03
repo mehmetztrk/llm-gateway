@@ -31,12 +31,19 @@ final class RateLimitHeaders {
     static final String QUOTA_LIMIT = "x-llmgw-quota-limit-tokens";
     static final String QUOTA_REMAINING = "x-llmgw-quota-remaining-tokens";
 
+    /**
+     * Whether this response came from cache. Exposed because a tenant billed by tokens is entitled
+     * to know when it was served without spending any.
+     */
+    static final String CACHE = "x-llmgw-cache";
+
     private RateLimitHeaders() {}
 
     static void apply(HttpHeaders headers, GatewayResult<?> result) {
         applyBucket(headers, result.requests(), LIMIT_REQUESTS, REMAINING_REQUESTS, RESET_REQUESTS);
         applyBucket(headers, result.tokens(), LIMIT_TOKENS, REMAINING_TOKENS, RESET_TOKENS);
         applyQuota(headers, result.quota());
+        headers.set(CACHE, result.cache().wireValue());
     }
 
     private static void applyBucket(

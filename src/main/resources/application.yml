@@ -122,6 +122,17 @@ gateway:
         - provider: mock-standby
           model: mock-fast
 
+  cache:
+    enabled: true
+    # The semantic layer needs an embedding model; the exact layer needs nothing.
+    semantic-enabled: true
+    # The most consequential number in the project: too low and the gateway confidently answers a
+    # question nobody asked. See ADR-0008 for how this value was chosen.
+    similarity-threshold: 0.95
+    ttl: 1h
+    embedding-model: nomic-embed-text
+    embedding-dimensions: 768
+
   rate-limit:
     # Short on purpose: a slow Redis must fail fast rather than add latency to every request.
     # Exceeding it refuses the request — the limiter fails closed. See ADR-0004.

@@ -6,6 +6,7 @@ import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyFactory;
 import io.github.mehmetztrk.llmgateway.application.port.out.ApiKeyHasher;
 import io.github.mehmetztrk.llmgateway.application.port.out.TenantRepository;
 import io.github.mehmetztrk.llmgateway.application.service.AdminService;
+import io.github.mehmetztrk.llmgateway.application.service.CacheService;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
 import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
@@ -37,8 +38,8 @@ public class ApplicationConfig {
 
     @Bean
     public ChatCompletionUseCase chatCompletionUseCase(
-            RoutingService routing, FailoverExecutor failover, RateLimitService limits) {
-        return new ChatCompletionService(routing, failover, limits);
+            RoutingService routing, FailoverExecutor failover, RateLimitService limits, CacheService cache) {
+        return new ChatCompletionService(routing, failover, limits, cache);
     }
 
     @Bean

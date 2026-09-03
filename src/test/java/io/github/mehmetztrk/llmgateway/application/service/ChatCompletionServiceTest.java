@@ -51,6 +51,23 @@ class ChatCompletionServiceTest {
     private final InMemoryRateLimiter rateLimiter = new InMemoryRateLimiter();
     private final InMemoryQuotaStore quotas = new InMemoryQuotaStore();
 
+    private static final io.github.mehmetztrk.llmgateway.application.port.out.ResponseCache NO_CACHE =
+            new io.github.mehmetztrk.llmgateway.application.port.out.ResponseCache() {
+                @Override
+                public Mono<io.github.mehmetztrk.llmgateway.domain.cache.CachedCompletion> lookup(
+                        io.github.mehmetztrk.llmgateway.domain.tenant.TenantId tenant, ChatRequest request) {
+                    return Mono.empty();
+                }
+
+                @Override
+                public Mono<Void> store(
+                        io.github.mehmetztrk.llmgateway.domain.tenant.TenantId tenant,
+                        ChatRequest request,
+                        Completion completion) {
+                    return Mono.empty();
+                }
+            };
+
     private record StubProvider(ProviderId id, Set<String> supportedModels, Mono<Completion> response)
             implements LlmProvider {
         @Override
@@ -114,7 +131,12 @@ class ChatCompletionServiceTest {
         RoutingService routing = new RoutingService(
                 registry, health, Map.of("alias", List.of(new RouteTarget(provider.id(), "stub-model"))));
         return new ChatCompletionService(
-                routing, new FailoverExecutor(registry, health), new RateLimitService(rateLimiter, quotas));
+                routing,
+                new FailoverExecutor(registry, health),
+                new RateLimitService(rateLimiter, quotas),
+                // Caching off: these tests are about pipeline ordering, and a cache hit would make
+                // "the provider was not called" ambiguous.
+                new CacheService(NO_CACHE, NO_CACHE, false));
     }
 
     private ChatCompletionService workingService() {

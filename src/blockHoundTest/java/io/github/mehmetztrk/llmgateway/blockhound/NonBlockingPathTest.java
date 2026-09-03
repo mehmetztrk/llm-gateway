@@ -6,13 +6,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProvider;
 import io.github.mehmetztrk.llmgateway.adapter.out.provider.mock.MockProviderProperties;
 import io.github.mehmetztrk.llmgateway.application.port.in.GatewayResult;
+import io.github.mehmetztrk.llmgateway.application.port.out.ResponseCache;
+import io.github.mehmetztrk.llmgateway.application.service.CacheService;
 import io.github.mehmetztrk.llmgateway.application.service.ChatCompletionService;
 import io.github.mehmetztrk.llmgateway.application.service.FailoverExecutor;
 import io.github.mehmetztrk.llmgateway.application.service.ProviderRegistry;
 import io.github.mehmetztrk.llmgateway.application.service.RateLimitService;
 import io.github.mehmetztrk.llmgateway.application.service.RoutingService;
+import io.github.mehmetztrk.llmgateway.domain.cache.CachedCompletion;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatMessage;
 import io.github.mehmetztrk.llmgateway.domain.chat.ChatRequest;
+import io.github.mehmetztrk.llmgateway.domain.chat.Completion;
 import io.github.mehmetztrk.llmgateway.domain.limits.QuotaPolicy;
 import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitPolicy;
 import io.github.mehmetztrk.llmgateway.domain.routing.ProviderId;
@@ -60,6 +64,18 @@ class NonBlockingPathTest {
 
     private static final RateLimitPolicy GENEROUS = new RateLimitPolicy(1_000_000, 1_000_000_000L);
 
+    private static final ResponseCache NO_CACHE = new ResponseCache() {
+        @Override
+        public Mono<CachedCompletion> lookup(TenantId tenant, ChatRequest request) {
+            return Mono.empty();
+        }
+
+        @Override
+        public Mono<Void> store(TenantId tenant, ChatRequest request, Completion completion) {
+            return Mono.empty();
+        }
+    };
+
     @BeforeAll
     static void installBlockHound() {
         BlockHound.install();
@@ -76,7 +92,8 @@ class NonBlockingPathTest {
         return new ChatCompletionService(
                 routing,
                 new FailoverExecutor(registry, health),
-                new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()));
+                new RateLimitService(new InMemoryRateLimiter(), new InMemoryQuotaStore()),
+                new CacheService(NO_CACHE, NO_CACHE, false));
     }
 
     private AuthenticatedCaller caller() {

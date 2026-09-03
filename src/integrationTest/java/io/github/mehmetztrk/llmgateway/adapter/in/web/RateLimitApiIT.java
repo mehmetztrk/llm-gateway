@@ -10,10 +10,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /** 429 semantics and the headers a client paces itself with. */
+@TestPropertySource(
+        properties = {
+            // Caching off: these tests repeat identical requests on purpose, and a cache hit means
+            // no tokens are spent and no limit is reached — which is the cache working, not this
+            // behaviour being broken. Each test should fail for one reason only.
+            "gateway.cache.enabled=false"
+        })
 class RateLimitApiIT extends AbstractGatewayIT {
 
     /** A tenant whose limits this test sets explicitly, so it cannot be affected by defaults. */

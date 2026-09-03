@@ -21,7 +21,14 @@ import org.springframework.test.context.TestPropertySource;
  * dies would make every other test in the class meaningless.
  */
 @TestPropertySource(
-        properties = {"gateway.providers.mock.completion-tokens=50", "gateway.providers.mock.fail-after-chunks=3"})
+        properties = {
+            "gateway.providers.mock.completion-tokens=50",
+            "gateway.providers.mock.fail-after-chunks=3",
+            // Caching off: these tests repeat identical requests on purpose, and a cache hit
+            // would mean the provider is never reached — which is the cache working, not this
+            // behaviour being broken. Each test should fail for one reason only.
+            "gateway.cache.enabled=false"
+        })
 class ChatCompletionsMidStreamFailureApiIT extends AbstractGatewayIT {
 
     private List<String> streamFrames(Duration timeout) {

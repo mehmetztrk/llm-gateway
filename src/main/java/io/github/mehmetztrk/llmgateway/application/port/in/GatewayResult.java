@@ -1,5 +1,6 @@
 package io.github.mehmetztrk.llmgateway.application.port.in;
 
+import io.github.mehmetztrk.llmgateway.domain.cache.CacheStatus;
 import io.github.mehmetztrk.llmgateway.domain.limits.QuotaSnapshot;
 import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitSnapshot;
 
@@ -13,9 +14,10 @@ import io.github.mehmetztrk.llmgateway.domain.limits.RateLimitSnapshot;
  *
  * @param body the completion, or the stream of chunks
  */
-public record GatewayResult<T>(T body, RateLimitSnapshot requests, RateLimitSnapshot tokens, QuotaSnapshot quota) {
+public record GatewayResult<T>(
+        T body, RateLimitSnapshot requests, RateLimitSnapshot tokens, QuotaSnapshot quota, CacheStatus cache) {
 
     public <R> GatewayResult<R> withBody(R newBody) {
-        return new GatewayResult<>(newBody, requests, tokens, quota);
+        return new GatewayResult<>(newBody, requests, tokens, quota, cache);
     }
 }

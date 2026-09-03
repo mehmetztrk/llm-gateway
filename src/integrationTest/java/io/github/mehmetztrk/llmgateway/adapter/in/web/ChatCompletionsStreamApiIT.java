@@ -11,7 +11,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 
 /** The SSE wire contract: the exact bytes an OpenAI SDK will parse. */
-@TestPropertySource(properties = {"gateway.providers.mock.completion-tokens=6"})
+@TestPropertySource(
+        properties = {
+            "gateway.providers.mock.completion-tokens=6",
+            // Caching off: these tests repeat identical requests on purpose, and a cache hit
+            // would mean the provider is never reached — which is the cache working, not this
+            // behaviour being broken. Each test should fail for one reason only.
+            "gateway.cache.enabled=false"
+        })
 class ChatCompletionsStreamApiIT extends AbstractGatewayIT {
 
     private List<String> streamFrames() {

@@ -10,9 +10,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /** Monthly budgets: the soft warning, then the hard block. */
+@TestPropertySource(
+        properties = {
+            // Caching off: these tests repeat identical requests on purpose, and a cache hit means
+            // no tokens are spent and no limit is reached — which is the cache working, not this
+            // behaviour being broken. Each test should fail for one reason only.
+            "gateway.cache.enabled=false"
+        })
 class QuotaApiIT extends AbstractGatewayIT {
 
     private String tenantKeyWithBudget(long monthlyBudget, double softThreshold) {
