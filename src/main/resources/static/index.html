@@ -282,18 +282,27 @@
             <option value="mock-ha">mock-ha</option>
             <option value="chat-default">chat-default</option>
           </optgroup>
-          <optgroup label="Mock provider — deterministic, no GPU">
-            <option value="mock-fast" selected>mock-fast</option>
-            <option value="mock-echo">mock-echo</option>
-          </optgroup>
-          <optgroup label="Ollama — real models">
-            <option value="qwen2.5:1.5b-instruct">qwen2.5:1.5b-instruct (GPU)</option>
+          <optgroup label="Real models — these actually answer">
+            <option value="qwen2.5:1.5b-instruct" selected>qwen2.5:1.5b-instruct (GPU)</option>
             <option value="llama3.2:1b">llama3.2:1b (CPU)</option>
+          </optgroup>
+          <optgroup label="Mock provider — benchmarking only, output is nonsense">
+            <option value="mock-fast">mock-fast</option>
+            <option value="mock-echo">mock-echo</option>
           </optgroup>
           <optgroup label="Error paths">
             <option value="gpt-5-imaginary">gpt-5-imaginary → 404</option>
           </optgroup>
         </select>
+      </div>
+
+      <div class="banner warn" id="mockNote" hidden>
+        <span class="glyph">i</span>
+        <span>
+          <b>Mock provider.</b> It returns deterministic filler words, not answers — it exists so
+          benchmarks measure the gateway instead of a GPU. Pick a real model above to get a real
+          answer.
+        </span>
       </div>
 
       <div class="field">
@@ -326,8 +335,9 @@
       </div>
 
       <p class="hint">
-        <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> sends. Pick an alias to watch routing pick a
-        provider; pick <code>gpt-5-imaginary</code> to see the OpenAI-shaped error envelope.
+        <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> sends. <code>chat-default</code> is an alias
+        that fails over from GPU to CPU; <code>gpt-5-imaginary</code> shows the OpenAI-shaped error
+        envelope; the mock models are for benchmarking and do not produce real answers.
       </p>
     </section>
 
@@ -397,6 +407,14 @@
     localStorage.setItem(KEY_STORAGE, e.target.value.trim());
     refreshProviders();
   });
+
+  // The mock's output is deliberately meaningless. Saying so where the model is chosen is the
+  // difference between "this project is broken" and "this is the test double doing its job".
+  const MOCK_MODELS = new Set(["mock-fast", "mock-echo", "mock-ha"]);
+  const updateMockNote = () => {
+    $('mockNote').hidden = !MOCK_MODELS.has($('model').value);
+  };
+  $('model').addEventListener('change', updateMockNote);
 
   const authHeaders = () => {
     const key = $('apiKey').value.trim();
@@ -630,6 +648,7 @@
 
   checkHealth();
   refreshProviders();
+  updateMockNote();
 })();
 </script>
 </body>
